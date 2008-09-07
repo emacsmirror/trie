@@ -30,27 +30,88 @@
 
 ;;; Commentary:
 ;;
-;; A ternary search tree associates data with keys. The keys can be any
-;; ordered sequence of elements: vector, list or string. It stores them
-;; in such a way that both storage size and data lookup are reasonably
-;; space- and time-efficient, respectively. But more importantly,
-;; returning all strings with a given prefix in alphabetical or any other
-;; sort-order is also time-efficient.
+;; A trie stores keys that are ordered sequences of elements (vectors,
+;; lists or strings in Elisp), in such a way that both storage and
+;; retrieval are reasonably space- and time-efficient. But, more
+;; importantly, searching for keys that match various patterns can also
+;; be done efficiently. For example, returning all strings with a given
+;; prefix, and sorting them in an arbitrary order. Or searching for keys
+;; matching a pattern containing wildcards (not yet implemented in this
+;; package).
 ;;
-;; Internally, a ternary search tree consists of two elements, the root
-;; node and the comparison function. The latter must take two arguments
-;; of the same type as individual elements of a key, and must return nil if
-;; the first is smaller than the second.
+;; Note that there are two uses for a ternary search tree: as a lookup
+;; table, in which case only presence of absence of a key is significant,
+;; or as an associative array, in which case keys are associated with
+;; data. Other similar data types often only implement lookup tables,
+;; leaving it up to you to implement an associative array on top of this
+;; (by storing key+data pairs in the data structure's keys, then defining
+;; a comparison function that only compares the key part). However, this
+;; would be somewhat space-inefficient in a trie, so this package does
+;; the opposite: it implements associative arrays, and leaves it up to
+;; you to use them as lookup tables if you so desire.
 ;;
-;; Note that there are two uses for a ternary search tree: as a
-;; "dictionary", in which case only presence of absence of a key is
-;; significant, or as an associative array, in which case keys are
-;; associated with data. Other similar data types often only implement
-;; the first of these, leaving it up to you to implement an associative
-;; on top of this. However, this would be somewhat space-inefficient in a
-;; ternary search tree, so this package does the opposite: it implements
-;; associative arrays, and leaves it up to you to use them as
-;; dictionaries if you so desire.
+;; There are numerous ways to implement trie data structures internally,
+;; each with advantages and disadvantages. By viewing a trie as a tree
+;; whose nodes are themselves lookup tables, this package is able to
+;; support all types of trie, providing there exists (or you write!) an
+;; Elisp implementation of the corresponding type of lookup table. The
+;; best implementation will depend on what trade-offs are appropriate for
+;; your particular application. The following gives an overview of the
+;; advantages and disadvantages of various types of trie. (Not all of the
+;; underlying lookup tables have been implemented in Elisp yet, so using
+;; some of them would require writing the missing Elisp package!)
+;;
+;; One of the most effective all-round implementations of a trie is a
+;; ternary search tree, which can be viewed as a tree of binary trees. If
+;; simple binary search trees are used for the nodes of the trie, we get
+;; a basic ternary search tree. If self-balancing binary trees are used
+;; (e.g. AVL or red-black trees), we get a self-balancing ternary search
+;; tree. If splay trees are used, we get yet another self-organising
+;; variant of a ternary search tree. All ternary search trees have in
+;; common reasonably good space-efficiency. The time-efficiency for trie
+;; operations is also reasonably good, providing the underlying binary
+;; trees are balanced. Assuming the binary trees are balanced, all
+;; variants of ternary search trees described below have the same
+;; time-complexity for all trie operations.
+;;
+;; Self-balancing trees ensure this is the case, with the usual
+;; trade-offs between different the types of self-balancing binary tree:
+;; AVL trees are slightly more efficient for lookup operations than
+;; red-black trees, but are slightly less efficienct for insertion
+;; operations, and less efficient for deletion operations, as compared to
+;; red-black trees. Splay trees give good average-case complexity and are
+;; simpler to implement than AVL or red-black trees (which can mean
+;; faster in practice!), at the expense of poor worst-case complexity.
+;;
+;; If your tries are going to be static (i.e. created once and rarely or
+;; never changed), then using perfectly balanced binary search trees
+;; might be more appropriate. Perfectly balancing the binary trees is
+;; very inefficient, but it only has to be done once after the trie is
+;; created, or on the rare occarions that it is modified. Lookup
+;; operations will then be as efficient as possible for ternary search
+;; trees.
+;;
+;; On the other hand, adding data to a binary search tree in a random
+;; order usually results in a reasonably balanced tree. If this is the
+;; likely scenario, using a simple binary tree will likely be quite
+;; efficient, and, being simpler to implement, could be faster overall.
+;;
+;; A digital trie is a different implementation of a trie, which can be
+;; viewed as a tree of arrays, and has different space- and
+;; time-complexity than a ternary search tree. Essentially, a digital
+;; trie has worse space-complexity, but better time-complexity. Using
+;; hash tables instead of arrays for the nodes gives something similar to
+;; a digital trie, potentially with better space-complexity and the same
+;; time-complexity most of the time, but at the expense of occasional
+;; significant inefficiency when inserting and deleting (whenever the
+;; hash table has to be resized). Indeed, an array can be viewed as a
+;; perfect hash table, but as such it requires the number of possible
+;; values to be known in advance.
+;;
+;; Finally, if you really need optimal efficiency from your trie, you
+;; could even write a custom lookup table optimised for your specific
+;; needs.
+;;
 ;;
 ;; You create a ternary search tree using `trie-create', create an
 ;; association using `trie-insert', retrieve an association using
@@ -271,13 +332,12 @@ If START or END is negative, it counts from the end."
 
 
 (defun trie--mapc (trie--mapc--function trie--mapc--mapfun
-					    trie--root seq
-					    &optional reverse)
+					trie--root seq
+					&optional reverse)
   ;; Apply FUNCTION to all elements in a trie beneath ROOT, which should
   ;; correspond to the sequence SEQ. TRIE-FUNCTION is passed two arguments:
   ;; the trie node itself and the sequence it corresponds to. It is applied
-  ;; in ascending order, or descending order if REVERSE is non-nil. ARGS are
-  ;; passed as additional arguments to TRIE-FUNCTION
+  ;; in ascending order, or descending order if REVERSE is non-nil.
   (funcall
    trie--mapc--mapfun
    (lambda (node)
@@ -443,13 +503,13 @@ Returns the new association of KEY."
 			  (trie--node-create (elt key i) tree)
 			  keep-old)))
     ;; If UPDATEFUN was supplied, wrap it for passing to `trie--enterfun'.
-    (if updatefun
-	(setq update-old
-	      (lambda (a b)
-		(setf (trie--node-data b)
-		      (funcall updatefun
-			       (trie--node-data a)
-			       (trie--node-data b))))))
+    (when updatefun
+      (setq update-old
+	    (lambda (a b)
+	      (setf (trie--node-data b)
+		    (funcall updatefun
+			     (trie--node-data a)
+			     (trie--node-data b))))))
     ;; Create or update data node.
     (setq node (funcall (trie--insertfun tree)
 			(trie--node-subtree node)
@@ -639,10 +699,10 @@ also `trie-member-p', which does this for you.)"
 
 
 (defun trie-complete (tree key &optional maxnum filter)
-  "Return an alist containing all completions of KEY
-in ternary searh tree TREE along with their associated data, in
-\"lexical\" order (i.e. the order defined by the tree's
-comparison function). If no completions are found, return nil.
+  "Return an alist containing all completions of KEY in tree TREE
+along with their associated data, in \"lexical\" order (i.e. the
+order defined by the tree's comparison function). If no
+completions are found, return nil.
 
 KEY must be a sequence (vector, list or string) containing
 elements of the type used to reference data in the tree. (If KEY
@@ -660,21 +720,47 @@ completion with two arguments: the completion, and its associated
 data. If the filter function returns nil, the completion is not
 included in the results, and does not count towards MAXNUM."
 
-  (let* ((node (trie--node-find tree key))
-	 (trie--stack (make-vector 1 nil))
-	 (accumulator
-	  (lambda (node seq)
-	    (let ((data (trie--node-data node)))
-	      (when (or (null filter) (funcall filter seq data))
+  (let ((node (trie--node-find tree key))
+	(trie--stack (make-vector 1 nil))
+	accumulator)
+
+    ;; construct function to accumulate completions in stack
+    (setq accumulator
+	  (cond
+	   ((and filter maxnum)
+	    (lambda (node seq)
+	      (let ((data (trie--node-data node)))
+		(when (funcall filter seq data)
+		  (aset trie--stack 0
+			(cons (cons seq data) (aref trie--stack 0)))
+		  (and (>= (length (aref trie--stack 0)) maxnum)
+		       (throw 'trie-complete--done nil))))))
+	   ((and (not filter) maxnum)
+	    (lambda (node seq)
+	      (let ((data (trie--node-data node)))
 		(aset trie--stack 0
 		      (cons (cons seq data) (aref trie--stack 0)))
-		(and maxnum
-		     (>= (length (aref trie--stack 0)) maxnum)
-		     (throw 'trie-complete--done nil)))))))
+		(and (>= (length (aref trie--stack 0)) maxnum)
+		     (throw 'trie-complete--done nil)))))
+	   ((and filter (not maxnum))
+	    (lambda (node seq)
+	      (let ((data (trie--node-data node)))
+		(when (funcall filter seq data)
+		  (aset trie--stack 0
+			(cons (cons seq data) (aref trie--stack 0)))))))
+	   ((and (not filter) (not maxnum))
+	    (lambda (node seq)
+	      (let ((data (trie--node-data node)))
+		(aset trie--stack 0
+		      (cons (cons seq data) (aref trie--stack 0))))))
+	   ))
+
+    ;; accumulate completions in stack
     (when node
       (catch 'trie-complete--done
 	(trie--mapc accumulator (trie--mapfun tree) node key t))
       (aref trie--stack 0))))
+
 
 
 ;; Note: We use a partial heap-sort to find the k=MAXNUM highest ranked
@@ -683,13 +769,13 @@ included in the results, and does not count towards MAXNUM."
 ;; (e.g. partial quick-sort where the irrelevant partition is discarded
 ;; at each step) would have complexity O(n + k log k), but is probably
 ;; not worth the extra coding effort, and would have worse space
-;; complexity. (I haven't done any benchmarking, though, so feel free to
-;; do so and let me know the results!)
+;; complexity unless coded to work "in-place". (I haven't done any
+;; benchmarking, though, so feel free to do so and let me know the
+;; results!)
 (defun trie-complete-ordered (tree key rankfun &optional maxnum filter)
   "Return an alist containing all completions of SEQUENCE found
-in ternary searh tree TREE along with their associated data, in
-the order defined by RANKFUN. If no completions are found, return
-nil.
+in tree TREE along with their associated data, in the order
+defined by RANKFUN. If no completions are found, return nil.
 
 KEY must be a sequence (vector, list or string) containing
 elements of the type used to reference data in the tree. (If KEY
@@ -711,20 +797,42 @@ completion with two arguments: the completion, and its associated
 data. If the filter function returns nil, the completion is not
 included in the results, and does not count towards MAXNUM."
 
-  (let* ((node (trie--node-find tree key))
-	 (trie--heap (heap-create
-			`(lambda (a b) (not (,rankfun a b)))
-			(when maxnum (1+ maxnum))))
-	 (accumulator
-	  (lambda (node seq)
-	    (let ((data (trie--node-data node)))
-	      (when (or (null filter) (funcall filter seq data))
-		(heap-add trie--heap (cons seq data))
-		(and maxnum
-		     (> (heap-size trie--heap) maxnum)
-		     (heap-delete-root trie--heap)))))))
-    (when node (trie--mapc accumulator (trie--mapfun tree) node key))
+  (let ((node (trie--node-find tree key))
+	(trie--heap (heap-create
+		     `(lambda (a b) (not (,rankfun a b)))
+		     (when maxnum (1+ maxnum))))
+	accumulator)
 
+    ;; construct function to accumulate completions in heap
+    (setq accumulator
+	  (cond
+	   ((and filter maxnum)
+	    (lambda (node seq)
+	      (let ((data (trie--node-data node)))
+		(when (funcall filter seq data)
+		  (heap-add trie--heap (cons seq data))
+		  (and (> (heap-size trie--heap) maxnum)
+		       (heap-delete-root trie--heap))))))
+	   ((and filter (not maxnum))
+	    (lambda (node seq)
+	      (let ((data (trie--node-data node)))
+		(when (funcall filter seq data)
+		  (heap-add trie--heap (cons seq data))))))
+	   ((and (not filter) maxnum)
+	    (lambda (node seq)
+	      (let ((data (trie--node-data node)))
+		(heap-add trie--heap (cons seq data))
+		(and (> (heap-size trie--heap) maxnum)
+		     (heap-delete-root trie--heap)))))
+	   ((and (not filter) (not maxnum))
+	    (lambda (node seq)
+	      (let ((data (trie--node-data node)))
+		(heap-add trie--heap (cons seq data)))))))
+
+    ;; accumulate completions in heap
+    (when node (trie--mapc accumulator (trie--mapfun tr) node key))
+
+    ;; extract completions from heap
     (let (completions)
       (while (not (heap-empty trie--heap))
 	(setq completions (cons (heap-delete-root trie--heap) completions)))
