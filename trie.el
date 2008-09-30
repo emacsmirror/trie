@@ -32,12 +32,11 @@
 ;;
 ;; A trie stores keys that are ordered sequences of elements (vectors,
 ;; lists or strings in Elisp), in such a way that both storage and
-;; retrieval are reasonably space- and time-efficient. But, more
-;; importantly, searching for keys that match various patterns can also
-;; be done efficiently. For example, returning all strings with a given
-;; prefix, and sorting them in an arbitrary order. Or searching for keys
-;; matching a pattern containing wildcards (not yet implemented in this
-;; package).
+;; retrieval are space- and time-efficient. But, more importantly,
+;; searching for keys that match various patterns can also be done
+;; efficiently. For example, returning all strings with a given prefix,
+;; and sorting them in an arbitrary order. Or searching for keys matching
+;; a pattern containing wildcards (not yet implemented in this package).
 ;;
 ;; Note that there are two uses for a trie: as a lookup table, in which
 ;; case only presence of absence of a key is significant, or as an
@@ -132,25 +131,26 @@
 ;; * Ternary search trees are now implemented as a tree of avl trees, which
 ;;   has numerous advantages: self-balancing trees guarantee O(log n)
 ;;   complexity regardless of how the tree is built; deletion is now done
-;;   correctly.
-;; * Up to "tstree"->"trie" renaming, functions are almost drop-in
-;;   replacements for tstree.el functions. However, insertion and rank
-;;   functions are no longer stored in the data structure, so corresponidng
-;;   arguments are no longer optional. And functions can no longer operate
-;;   over multiple data structures at once; i.e. they no longer accept lists
-;;   of trees or prefixes as arguments. (These features belong in higher level
-;;   libraries, and the efficiency loss is negligible.)
-;; * `trie.el' is now general enough to implement all sorts of tries, not just
+;;   properly.
+;; * Up to "tstree"->"trie" renaming, many functions are drop-in replacements
+;;   for tstree.el functions. However, insertion and rank functions are no
+;;   longer stored in the data structure, so corresponidng arguments are no
+;;   longer optional. A single `trie-complete' function now does both
+;;   lexically-sorted and arbitrary-sorted completion, with the rank function
+;;   passed as an optional argument in the latter case. And functions can no
+;;   longer operate over multiple data structures at once; i.e. they no longer
+;;   accept lists of trees as arguments. (These features belong in higher
+;;   level libraries, and the efficiency loss is negligible.)
+;; * trie.el is now general enough to implement all sorts of tries, not just
 ;;   ternary search trees (though these remain the default).
 
 
 
 ;;; Code:
 
-(provide 'trie)
+(eval-when-compile (require 'cl))
 (require 'avl-tree)
 (require 'heap)
-
 
 
 
@@ -185,7 +185,7 @@ If START or END is negative, it counts from the end."
 	       res))))))
 
 
-(defun trie--seq-append (seq el)
+(defsubst trie--seq-append (seq el)
   "Append EL to the end of sequence SEQ."
   (cond
    ((stringp seq) (concat seq (string el)))
@@ -196,6 +196,7 @@ If START or END is negative, it counts from the end."
 
 ;;; ================================================================
 ;;;     Internal functions only for use within the trie package
+
 
 ;;; ----------------------------------------------------------------
 ;;;           Functions and macros for handling a trie.
@@ -209,7 +210,7 @@ If START or END is negative, it counts from the end."
 		  &aux
 		  (createfun
 		   (cond
-		    ((eq type 'avl) 'avl-tree-create)
+		    ((eq type 'avl) 'avl-tree-create-bare)
 		    (t (error "trie--create: unknown trie TYPE, %s" type))))
 		  (insertfun
 		   (cond
@@ -231,15 +232,15 @@ If START or END is negative, it counts from the end."
 		   (cond
 		    ((eq type 'avl) 'avl-tree-empty)
 		    (t (error "trie--create: unknown trie TYPE, %s" type))))
-		  (stackfun
+		  (stack-createfun
 		   (cond
 		    ((eq type 'avl) 'avl-tree-stack)
 		    (t (error "trie--create: unknown trie TYPE, %s" type))))
-		  (popfun
+		  (stack-popfun
 		   (cond
 		    ((eq type 'avl) 'avl-tree-stack-pop)
 		    (t (error "trie--create: unknown trie TYPE, %s" type))))
-		  (stackemptyfun
+		  (stack-emptyfun
 		   (cond
 		    ((eq type 'avl) 'avl-tree-stack-empty-p)
 		    (t (error "trie--create: unknown trie TYPE, %s" type))))
@@ -255,15 +256,15 @@ If START or END is negative, it counts from the end."
    (:constructor trie--create-custom
 		 (comparison-function
 		  &key
-		  (createfun 'avl-tree-create)
+		  (createfun 'avl-tree-create-bare)
 		  (insertfun 'avl-tree-enter)
 		  (deletefun 'avl-tree-delete)
 		  (lookupfun 'avl-tree-member)
 		  (mapfun 'avl-tree-mapc)
 		  (emptyfun 'avl-tree-empty)
-		  (stackfun 'avl-tree-stack)
-		  (popfun 'avl-tree-stack-pop)
-		  (stackemptyfun 'avl-tree-stack-empty-p)
+		  (stack-createfun 'avl-tree-stack)
+		  (stack-popfun 'avl-tree-stack-pop)
+		  (stack-emptyfun 'avl-tree-stack-empty-p)
 		  &aux
 		  (cmpfun `(lambda (a b)
 			     (setq a (trie--node-split a)
@@ -277,7 +278,7 @@ If START or END is negative, it counts from the end."
    (:copier nil))
   root comparison-function cmpfun
   createfun insertfun deletefun lookupfun mapfun emptyfun
-  stackfun popfun stackemptyfun)
+  stack-createfun stack-popfun stack-emptyfun)
 
 
 (defmacro trie--wrap-cmpfun (cmpfun)
@@ -289,6 +290,7 @@ If START or END is negative, it counts from the end."
 	    (if (eq b 'trie--terminator) nil t))
 	   ((eq b 'trie--terminator) nil)
 	   (t (,cmpfun a b)))))
+
 
 
 ;;; ----------------------------------------------------------------
@@ -332,7 +334,8 @@ If START or END is negative, it counts from the end."
       (setq node
 	    (funcall (trie--lookupfun trie)
 		     (trie--node-subtree node)
-		     (trie--node-create-dummy (elt sequence i)))))
+		     (trie--node-create-dummy (elt sequence i))
+		     nil (trie--cmpfun trie))))
     node))
 
 
@@ -341,7 +344,8 @@ If START or END is negative, it counts from the end."
   ;; its subtree.
   `(funcall (trie--lookupfun ,trie)
 	    (trie--node-subtree ,node)
-	    (trie--node-create-dummy 'trie--terminator)))
+	    (trie--node-create-dummy 'trie--terminator)
+	    nil (trie--cmpfun ,trie)))
 
 
 (defmacro trie--find-data (node trie)
@@ -350,6 +354,99 @@ If START or END is negative, it counts from the end."
   `(let ((node (trie--find-data-node ,node ,trie)))
      (when node (trie--node-data node))))
 
+
+
+;;; ----------------------------------------------------------------
+;;;          Functions and macros for handling trie-stacks
+
+(defstruct (trie--stack
+	    (:constructor nil)
+	    (:constructor
+	     trie--stack-create
+	     (trie
+	      &optional
+	      (type 'vector)
+	      reverse
+	      &aux
+	      (stack-createfun (trie--stack-createfun trie))
+	      (stack-popfun (trie--stack-popfun trie))
+	      (stack-emptyfun (trie--stack-emptyfun trie))
+	      (store
+	       (if (trie-empty trie)
+		   nil
+		 (list (cons
+			(cond ((eq type 'list) ())
+			      ((eq type 'string) "")
+			      (t []))
+			(funcall stack-createfun
+				 (trie--node-subtree (trie--root trie))
+				 reverse)))))
+	      ))
+	    (:constructor
+	     trie--completion-stack-create
+	     (trie prefix
+	      &optional
+	      reverse
+	      &aux
+	      (stack-createfun (trie--stack-createfun trie))
+	      (stack-popfun (trie--stack-popfun trie))
+	      (stack-emptyfun (trie--stack-emptyfun trie))
+	      (store (trie--completion-stack-construct-store
+		      trie prefix reverse))
+	      ))
+	    (:copier nil))
+  reverse stack-createfun stack-popfun stack-emptyfun store)
+
+
+(defun trie--completion-stack-construct-store (trie prefix reverse)
+  ;; Construct store for completion stack based on TRIE.
+  (let (accumulate node)
+    (if (or (atom prefix)
+	    (and (listp prefix)
+		 (not (sequencep (car prefix)))))
+	(setq prefix (list prefix))
+      (setq prefix
+	    (sort prefix
+		  (eval (macroexpand
+			 `(trie-construct-sortfun
+			   ,(trie--comparison-function trie)
+			   ,(not reverse)))))))
+    (dolist (pfx prefix)
+      (when (setq node (trie--node-find trie pfx))
+	(push (cons pfx (funcall (trie--stack-createfun trie)
+				 (trie--node-subtree node)
+				 reverse))
+	      accumulate)))
+    accumulate))
+
+
+(defun trie--stack-repopulate (stack)
+  ;; Recursively push children of the node at the head of STACK onto the front
+  ;; of STACK, until a data node is reached.
+  (when (not (trie-stack-empty-p stack))
+    (let ((node (funcall (trie--stack-stack-popfun stack)
+			 (cdar (trie--stack-store stack))))
+	  (seq (caar (trie--stack-store stack))))
+      (when (funcall (trie--stack-stack-emptyfun stack)
+		     (cdar (trie--stack-store stack)))
+	;; effectively (pop (trie--stack-store stack)) w/o compilter warnings
+	(setf (trie--stack-store stack) (cdr (trie--stack-store stack))))
+
+      (while (not (trie--node-data-p node))
+	(push
+	 (cons (trie--seq-append seq (trie--node-split node))
+	       (funcall (trie--stack-stack-createfun stack)
+			(trie--node-subtree node)))
+	 (trie--stack-store stack))
+	(setq node (funcall (trie--stack-stack-popfun stack)
+			    (cdar (trie--stack-store stack)))
+	      seq (caar (trie--stack-store stack)))
+	(when (funcall (trie--stack-stack-emptyfun stack)
+		       (cdar (trie--stack-store stack)))
+	  ;; effectively (pop (trie--stack-store stack)) w/o compiler warnings
+	  (setf (trie--stack-store stack) (cdr (trie--stack-store stack)))))
+
+      (push (cons seq (trie--node-data node)) (trie--stack-store stack)))))
 
 
 
@@ -405,9 +502,72 @@ reversed if REVERSE is non-nil."
 	   (< (length a) (length b)))))))
 
 
+(defmacro trie--complete-construct-accumulator (maxnum filter)
+  ;; Does what it says on the tin! | sed -e 's/on/in/' -e 's/tin/macro name/'
+  `(cond
+    ((and ,filter ,maxnum)
+     (lambda (node seq)
+       (let ((data (trie--node-data node)))
+	 (when (funcall ,filter seq data)
+	   (aset trie--complete-accumulate 0
+		 (cons (cons seq data)
+		       (aref trie--complete-accumulate 0)))
+	   (and (>= (length (aref trie--complete-accumulate 0)) ,maxnum)
+		(throw 'trie-complete--done nil))))))
+    ((and (not ,filter) ,maxnum)
+     (lambda (node seq)
+       (let ((data (trie--node-data node)))
+	 (aset trie--complete-accumulate 0
+	       (cons (cons seq data)
+		     (aref trie--complete-accumulate 0)))
+	 (and (>= (length (aref trie--complete-accumulate 0)) ,maxnum)
+	      (throw 'trie-complete--done nil)))))
+    ((and ,filter (not ,maxnum))
+     (lambda (node seq)
+       (let ((data (trie--node-data node)))
+	 (when (funcall ,filter seq data)
+	   (aset trie--complete-accumulate 0
+		 (cons (cons seq data)
+		       (aref trie--complete-accumulate 0)))))))
+    ((and (not ,filter) (not ,maxnum))
+     (lambda (node seq)
+       (let ((data (trie--node-data node)))
+	 (aset trie--complete-accumulate 0
+	       (cons (cons seq data)
+		     (aref trie--complete-accumulate 0))))))))
+
+
+(defmacro trie--complete-construct-ranked-accumulator (maxnum filter)
+  ;; Does what it says on the tin! | sed -e 's/on/in/' -e 's/tin/macro name/'
+  `(cond
+    ((and ,filter ,maxnum)
+     (lambda (node seq)
+       (let ((data (trie--node-data node)))
+	 (when (funcall ,filter seq data)
+	   (heap-add trie--complete-accumulate (cons seq data))
+	   (and (> (heap-size trie--complete-accumulate) ,maxnum)
+		(heap-delete-root trie--complete-accumulate))))))
+    ((and ,filter (not ,maxnum))
+     (lambda (node seq)
+       (let ((data (trie--node-data node)))
+	 (when (funcall ,filter seq data)
+	   (heap-add trie--complete-accumulate (cons seq data))))))
+    ((and (not ,filter) ,maxnum)
+     (lambda (node seq)
+       (let ((data (trie--node-data node)))
+	 (heap-add trie--complete-accumulate (cons seq data))
+	 (and (> (heap-size trie--complete-accumulate) ,maxnum)
+	      (heap-delete-root trie--complete-accumulate)))))
+    ((and (not ,filter) (not ,maxnum))
+     (lambda (node seq)
+       (let ((data (trie--node-data node)))
+	 (heap-add trie--complete-accumulate (cons seq data)))))))
+
+
+
 
 ;;; ================================================================
-;;;    The public functions which operate on tries.
+;;;        The public functions which operate on tries.
 
 (defalias 'trie-create 'trie--create
   "Return a new trie that uses comparison function COMPARISON-FUNCTION.
@@ -433,16 +593,16 @@ each being an element of such a sequence, and return t if the
 first is strictly smaller than the second.
 
 The remaining arguments: CREATEFUN, INSERTFUN, DELETEFUN,
-LOOKUPFUN, MAPFUN, EMPTYFUN, STACKFUN, POPFUN and STACKEMPTYFUN,
-determine the type of trie that is created.
+LOOKUPFUN, MAPFUN, EMPTYFUN, STACK-CREATEFUN, STACK-POPFUN and
+STACK-EMPTYFUN, determine the type of trie that is created.
 
 CREATEFUN is called as follows:
 
   (CREATEFUN COMPARISON-FUNCTION)
 
-and should return a data structure (\"TABLE\") that can be used
-as an lookup table, where two elements A and B are equal if the
-following is non-nil:
+and should return a data structure (\"ARRAY\") that can be used
+as an associative array, where two elements A and B are equal if
+the following is non-nil:
 
   (and (COMPARISON-FUNCTION b a)
        (COMPARISON-FUNCTION b a))
@@ -450,40 +610,43 @@ following is non-nil:
 
 INSERTFUN, DELETEFUN, LOOKUPFUN, MAPFUN and EMPTYFUN should
 insert, delete, lookup, map over, and check-if-there-exist-any
-elements in the table. They are called as follows:
+elements in the associative array. They are called as follows:
 
-  (INSERTFUN table element &optional updatefun)
-  (DELETEFUN table element)
-  (LOOKUPFUN table element &optional nilflag)
-  (MAPFUN function table &optional reverse)
-  (EMPTYFUN table)
+  (INSERTFUN array element &optional updatefun)
+  (DELETEFUN array element)
+  (LOOKUPFUN array element &optional nilflag)
+  (MAPFUN function array &optional reverse)
+  (EMPTYFUN array)
 
-INSERTFUN should return the new element, which will be ELEMENT itself
-unless UPDATEFUN is specified. In that case, it should pass two
-arguments to UPDATEFUN, ELEMENT and the matching element in the table,
-and replace that element with the return value.
+INSERTFUN should return the new element, which will be ELEMENT
+itself unless UPDATEFUN is specified. In the latter case, it
+should pass two arguments to UPDATEFUN, ELEMENT and the matching
+element in the associate array, and replace that element with the
+return value.
 
-LOOKUPFUN should return the element from the table that is equal
-to ELEMENT, or NILFLAG if no match exists.
+LOOKUPFUN should return the element from the associative array
+that is equal to ELEMENT, or NILFLAG if no match exists.
 
 MAPFUN should map FUNCTION over all elements in the order defined by
 COMPARISON-FUNCTION, or in reverse order if REVERSE is non-nil.
 
 
-STACKFUN, POPFUN and STACKEMPTYFUN should allow the table to be
-used as a stack. STACKFUN is called as follows:
+STACK-CREATEFUN, STACK-POPFUN and STACK-EMPTYFUN should allow the
+associative array to be used as a stack. STACK-CREATEFUN is
+called as follows:
 
-  (STACKFUN table)
+  (STACK-CREATEFUN array)
 
 and should return a data structure (\"STACK\") that behaves like
-a sorted stack of all elements in the lookup
-table. I.e. successive calls to
+a sorted stack of all elements in the associative array. I.e.
+successive calls to
 
-  (STACKPOP stack)
+  (STACK-POPFUN stack)
 
-should return elements from the table in order.
+should return elements from the associative array in the order
+defined by COMPARISON-FUNCTION.
 
-  (STACKEMPTYFUN stack)
+  (STACK-EMPTYFUN stack)
 
 should return non-nil if the stack is empty, nil otherwise.")
 
@@ -609,95 +772,6 @@ is more efficient."
 ;;; ----------------------------------------------------------------
 ;;;                    Using tries as stacks
 
-(defstruct (trie--stack
-	    (:constructor nil)
-	    (:constructor
-	     trie--stack-create
-	     (trie
-	      &optional
-	      (type 'vector)
-	      reverse
-	      &aux
-	      (stackfun (trie--stackfun trie))
-	      (popfun (trie--popfun trie))
-	      (emptyfun (trie--stackemptyfun trie))
-	      (store
-	       (if (trie-empty trie)
-		   nil
-		 (list (cons
-			(cond ((eq type 'list) ())
-			      ((eq type 'string) "")
-			      (t []))
-			(funcall stackfun
-				 (trie--node-subtree (trie--root trie))
-				 reverse)))))
-	      ))
-	    (:constructor
-	     trie--completion-stack-create
-	     (trie prefix
-	      &optional
-	      reverse
-	      &aux
-	      (stackfun (trie--stackfun trie))
-	      (popfun (trie--popfun trie))
-	      (emptyfun (trie--stackemptyfun trie))
-	      (store (trie--completion-stack-construct-store
-		      trie prefix reverse))
-	      ))
-	    (:copier nil))
-  reverse stackfun popfun emptyfun store)
-
-
-(defun trie--completion-stack-construct-store (trie prefix reverse)
-  ;; Construct store for completion stack based on TRIE.
-  (let (accumulate node)
-    (if (or (atom prefix)
-	    (and (listp prefix)
-		 (not (sequencep (car prefix)))))
-	(setq prefix (list prefix))
-      (setq prefix
-	    (sort prefix
-		  (eval (macroexpand
-			 `(trie-construct-sortfun
-			   ,(trie--comparison-function trie)
-			   ,(not reverse)))))))
-    (dolist (pfx prefix)
-      (when (setq node (trie--node-find trie pfx))
-	(push (cons pfx (funcall (trie--stackfun trie)
-				 (trie--node-subtree node)
-				 reverse))
-	      accumulate)))
-    accumulate))
-
-
-(defun trie--stack-repopulate (stack)
-  ;; Recursively push children of the node at the head of STACK onto the front
-  ;; of STACK, until a data node is reached.
-  (when (not (trie-stack-empty-p stack))
-    (let ((node (funcall (trie--stack-popfun stack)
-			 (cdar (trie--stack-store stack))))
-	  (seq (caar (trie--stack-store stack))))
-      (when (funcall (trie--stack-emptyfun stack)
-		     (cdar (trie--stack-store stack)))
-	;; (pop (trie--stack-store stack))
-	(setf (trie--stack-store stack) (cdr (trie--stack-store stack))))
-
-      (while (not (trie--node-data-p node))
-	(push
-	 (cons (trie--seq-append seq (trie--node-split node))
-	       (funcall (trie--stack-stackfun stack) (trie--node-subtree node)))
-	 (trie--stack-store stack))
-	(setq node (funcall (trie--stack-popfun stack)
-			    (cdar (trie--stack-store stack)))
-	      seq (caar (trie--stack-store stack)))
-	(when (funcall (trie--stack-emptyfun stack)
-		       (cdar (trie--stack-store stack)))
-	  ;; (pop (trie--stack-store stack))
-	  (setf (trie--stack-store stack) (cdr (trie--stack-store stack)))))
-
-      (push (cons seq (trie--node-data node)) (trie--stack-store stack)))))
-
-
 (defun trie-stack (trie &optional type reverse)
   "Return an object that allows TRIE to be accessed as if it were a stack.
 
@@ -805,7 +879,7 @@ Returns the new association of KEY."
 	(len (length key))
 	(i -1))
     ;; Descend trie, adding nodes for non-existent elements of KEY. The update
-    ;; function passed to `trie--enterfun' ensures that existing nodes are
+    ;; function passed to `trie--insertfun' ensures that existing nodes are
     ;; left intact.
     (while (< (incf i) len)
       (setq trie-insert--old-node-flag nil)
@@ -813,7 +887,8 @@ Returns the new association of KEY."
 			  (trie--node-subtree node)
 			  (trie--node-create (elt key i) trie)
 			  (lambda (a b)
-			    (setq trie-insert--old-node-flag t) b))))
+			    (setq trie-insert--old-node-flag t) b)
+			  (trie--cmpfun trie))))
     ;; If we're using an existing data node, and UPDATEFUN was supplied,
     ;; wrap it for passing to `trie--insertfun'.
     (when (and trie-insert--old-node-flag trie-insert--updatefun)
@@ -828,7 +903,8 @@ Returns the new association of KEY."
     (setq node (funcall (trie--insertfun trie)
 			(trie--node-subtree node)
 			(trie--node-create-data data)
-			trie-insert--update-old))
+			trie-insert--update-old
+			(trie--cmpfun trie)))
     (trie--node-data node)))  ; return new data
 
 
@@ -845,11 +921,13 @@ TRIE."
   (let (trie--deleted-node)
     (declare (special trie--deleted-node))
     (trie--do-delete (trie--root trie) key
-		       (trie--deletefun trie) (trie--emptyfun trie))
+		     (trie--deletefun trie)
+		     (trie--emptyfun trie)
+		     (trie--cmpfun trie))
     (cons key (trie--node-data trie--deleted-node))))
 
 
-(defun trie--do-delete (node seq deletefun emptyfun)
+(defun trie--do-delete (node seq deletefun emptyfun cmpfun)
   ;; Delete SEQ starting from trie node NODE, and return non-nil if we
   ;; deleted a node.
   (declare (special trie--deleted-node))
@@ -860,7 +938,8 @@ TRIE."
       (setq trie--deleted-node
 	    (funcall deletefun
 		     (trie--node-subtree node)
-		     (trie--node-create-dummy 'trie--terminator)))
+		     (trie--node-create-dummy 'trie--terminator)
+		     nil nil cmpfun))
     ;; otherwise, delete on down (return value of DELETEFUN is the deleted
     ;; data, which is always non-nil for a trie)
     (funcall deletefun
@@ -868,8 +947,9 @@ TRIE."
 	     (trie--node-create-dummy (elt seq 0))
 	     (lambda (n)
 	       (and (trie--do-delete n (trie--subseq seq 1)
-				       deletefun emptyfun)
-		    (funcall emptyfun (trie--node-subtree n)))))))
+				       deletefun emptyfun cmpfun)
+		    (funcall emptyfun (trie--node-subtree n))))
+	     cmpfun)))
 
 
 
@@ -897,72 +977,8 @@ also `trie-member-p', which does this for you.)"
 
 
 
-
 ;; ----------------------------------------------------------------
 ;;                         Completing
-
-(defmacro trie--complete-construct-accumulator (maxnum filter)
-  ;; Does what it says on the tin! | sed -e 's/on/in/' -e 's/tin/macro name/'
-  `(cond
-    ((and ,filter ,maxnum)
-     (lambda (node seq)
-       (let ((data (trie--node-data node)))
-	 (when (funcall ,filter seq data)
-	   (aset trie--complete-accumulate 0
-		 (cons (cons seq data)
-		       (aref trie--complete-accumulate 0)))
-	   (and (>= (length (aref trie--complete-accumulate 0)) ,maxnum)
-		(throw 'trie-complete--done nil))))))
-    ((and (not ,filter) ,maxnum)
-     (lambda (node seq)
-       (let ((data (trie--node-data node)))
-	 (aset trie--complete-accumulate 0
-	       (cons (cons seq data)
-		     (aref trie--complete-accumulate 0)))
-	 (and (>= (length (aref trie--complete-accumulate 0)) ,maxnum)
-	      (throw 'trie-complete--done nil)))))
-    ((and ,filter (not ,maxnum))
-     (lambda (node seq)
-       (let ((data (trie--node-data node)))
-	 (when (funcall ,filter seq data)
-	   (aset trie--complete-accumulate 0
-		 (cons (cons seq data)
-		       (aref trie--complete-accumulate 0)))))))
-    ((and (not ,filter) (not ,maxnum))
-     (lambda (node seq)
-       (let ((data (trie--node-data node)))
-	 (aset trie--complete-accumulate 0
-	       (cons (cons seq data)
-		     (aref trie--complete-accumulate 0))))))))
-
-
-(defmacro trie--complete-construct-ranked-accumulator (maxnum filter)
-  ;; Does what it says on the tin! | sed -e 's/on/in/' -e 's/tin/macro name/'
-  `(cond
-    ((and ,filter ,maxnum)
-     (lambda (node seq)
-       (let ((data (trie--node-data node)))
-	 (when (funcall ,filter seq data)
-	   (heap-add trie--complete-accumulate (cons seq data))
-	   (and (> (heap-size trie--complete-accumulate) ,maxnum)
-		(heap-delete-root trie--complete-accumulate))))))
-    ((and ,filter (not ,maxnum))
-     (lambda (node seq)
-       (let ((data (trie--node-data node)))
-	 (when (funcall ,filter seq data)
-	   (heap-add trie--complete-accumulate (cons seq data))))))
-    ((and (not ,filter) ,maxnum)
-     (lambda (node seq)
-       (let ((data (trie--node-data node)))
-	 (heap-add trie--complete-accumulate (cons seq data))
-	 (and (> (heap-size trie--complete-accumulate) ,maxnum)
-	      (heap-delete-root trie--complete-accumulate)))))
-    ((and (not ,filter) (not ,maxnum))
-     (lambda (node seq)
-       (let ((data (trie--node-data node)))
-	 (heap-add trie--complete-accumulate (cons seq data)))))))
-
-
 
 ;; Implementation Note
 ;; -------------------
@@ -1024,7 +1040,7 @@ included in the results, and does not count towards MAXNUM."
       ;; wrap prefix in a list if necessary
       ;; FIXME: the test for a list of prefixes, below, will fail if the
       ;;        PREFIX sequence is a list, and the elements of PREFIX are
-      ;;        themselves lists (there might be no neat way to fully fix
+      ;;        themselves lists (there might be no easy way to fully fix
       ;;        this...)
       (if (or (atom prefix) (and (listp prefix) (not (sequencep (car prefix)))))
 	  (setq prefix (list prefix))
@@ -1065,5 +1081,8 @@ included in the results, and does not count towards MAXNUM."
        (t (aref trie--complete-accumulate 0)))
       )))
 
+
+
+(provide 'trie)
 
 ;;; trie.el ends here
