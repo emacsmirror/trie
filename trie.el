@@ -1025,7 +1025,7 @@ completion with two arguments: the completion, and its associated
 data. If the filter function returns nil, the completion is not
 included in the results, and does not count towards MAXNUM."
 
-  (let ((node (trie--node-find trie prefix))
+  (let (node
 	(trie--complete-accumulate
 	 (if rankfun
 	     (heap-create  ; heap order is inverse of rank order
@@ -1036,50 +1036,50 @@ included in the results, and does not count towards MAXNUM."
 	   (make-vector 1 nil)))
 	accumulator)
 
-    (when node
-      ;; wrap prefix in a list if necessary
-      ;; FIXME: the test for a list of prefixes, below, will fail if the
-      ;;        PREFIX sequence is a list, and the elements of PREFIX are
-      ;;        themselves lists (there might be no easy way to fully fix
-      ;;        this...)
-      (if (or (atom prefix) (and (listp prefix) (not (sequencep (car prefix)))))
-	  (setq prefix (list prefix))
-	;; sort list of prefixes if sorting completions lexically
-	(when (null rankfun)
-	  (setq prefix
-		(sort prefix (eval (macroexpand
-				    `(trie-construct-sortfun
-				      ,(trie--comparison-function trie))))))))
+    ;; wrap prefix in a list if necessary
+    ;; FIXME: the test for a list of prefixes, below, will fail if the PREFIX
+    ;;        sequence is a list, and the elements of PREFIX are themselves
+    ;;        lists (there might be no easy way to fully fix this...)
+    (if (or (atom prefix) (and (listp prefix) (not (sequencep (car prefix)))))
+	(setq prefix (list prefix))
+      ;; sort list of prefixes if sorting completions lexically
+      (when (null rankfun)
+	(setq prefix
+	      (sort prefix (eval (macroexpand
+				  `(trie-construct-sortfun
+				    ,(trie--comparison-function trie))))))))
 
-      ;; construct function to accumulate completions (might as well save a
-      ;; few cycles in the `trie--mapc' call by constructing different
-      ;; functions depending on whether MAXNUM and FILTER were specified)
-      (if rankfun
-	  (setq accumulator
-		(trie--complete-construct-ranked-accumulator maxnum filter))
-	(setq accumulator (trie--complete-construct-accumulator
-			   maxnum filter)))
+    ;; construct function to accumulate completions (might as well save a few
+    ;; cycles in the `trie--mapc' call by constructing different functions
+    ;; depending on whether MAXNUM and FILTER were specified)
+    (if rankfun
+	(setq accumulator
+	      (trie--complete-construct-ranked-accumulator maxnum filter))
+      (setq accumulator (trie--complete-construct-accumulator
+			 maxnum filter)))
 
-      ;; accumulate completions
-      (catch 'trie-complete--done
-	(mapc (lambda (pfx)
+    ;; accumulate completions
+    (catch 'trie-complete--done
+      (mapc (lambda (pfx)
+	      (setq node (trie--node-find trie pfx))
+	      (when node
 		(trie--mapc accumulator (trie--mapfun trie) node pfx
-			    (if maxnum reverse (not reverse))))
-	      prefix))
+			    (if maxnum reverse (not reverse)))))
+	    prefix))
 
-      ;; return list of completions
-      (cond
-       ;; extract completions from heap for ranked query
-       (rankfun
-	(let (completions)
-	  (while (not (heap-empty trie--complete-accumulate))
-	    (push (heap-delete-root trie--complete-accumulate) completions))
-	  completions))
-       ;; reverse result list if MAXNUM supplied
-       (maxnum (nreverse (aref trie--complete-accumulate 0)))
-       ;; otherwise, just return list
-       (t (aref trie--complete-accumulate 0)))
-      )))
+    ;; return list of completions
+    (cond
+     ;; extract completions from heap for ranked query
+     (rankfun
+      (let (completions)
+	(while (not (heap-empty trie--complete-accumulate))
+	  (push (heap-delete-root trie--complete-accumulate) completions))
+	completions))
+     ;; reverse result list if MAXNUM supplied
+     (maxnum (nreverse (aref trie--complete-accumulate 0)))
+     ;; otherwise, just return list
+     (t (aref trie--complete-accumulate 0)))
+    ))
 
 
 
