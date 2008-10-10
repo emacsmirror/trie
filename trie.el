@@ -736,13 +736,15 @@ order, or descending order if REVERSE is non-nil."
 	trie-mapf--accumulate)
     (trie--mapc
      (lambda (node seq)
-       (funcall combinator
-		(funcall trie-mapf--function seq (trie--node-data node))
-		trie-mapf--accumulate))
+       (setq trie-mapf--accumulate
+	     (funcall combinator
+		      (funcall trie-mapf--function seq (trie--node-data node))
+		      trie-mapf--accumulate)))
      (trie--mapfun trie)
      (trie--root trie)
      (cond ((eq type 'string) "") ((eq type 'lisp) ()) (t []))
-     reverse)))
+     reverse)
+    trie-mapf--accumulate))
 
 
 (defun trie-mapcar (function trie &optional type reverse)
@@ -924,7 +926,8 @@ TRIE."
 		     (trie--deletefun trie)
 		     (trie--emptyfun trie)
 		     (trie--cmpfun trie))
-    (cons key (trie--node-data trie--deleted-node))))
+    (when trie--deleted-node
+      (cons key (trie--node-data trie--deleted-node)))))
 
 
 (defun trie--do-delete (node seq deletefun emptyfun cmpfun)
@@ -949,7 +952,7 @@ TRIE."
 	       (and (trie--do-delete n (trie--subseq seq 1)
 				       deletefun emptyfun cmpfun)
 		    (funcall emptyfun (trie--node-subtree n))))
-	     cmpfun)))
+	     nil cmpfun)))
 
 
 
