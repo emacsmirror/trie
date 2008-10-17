@@ -869,9 +869,9 @@ association, unless UPDATEFUN is supplied. Note that if DATA is
 will be replaced by nil.
 
 If UPDATEFUN is supplied and KEY already exists in TRIE,
-UPDATE-FUNCTION is called with two arguments: DATA and the
-existing association of KEY. Its return value becomes the new
-association for KEY.
+UPDATEFUN is called with two arguments: DATA and the existing
+association of KEY. Its return value becomes the new association
+for KEY.
 
 Returns the new association of KEY."
   (let ((trie-insert--updatefun updatefun)
@@ -914,26 +914,36 @@ Returns the new association of KEY."
 ;; ----------------------------------------------------------------
 ;;                        Deleting data
 
-(defun trie-delete (trie key)
+(defun trie-delete (trie key &optional test)
   "Delete KEY and its associated data from TRIE.
 
 If KEY was deleted, a cons cell containing KEY and its
 association is returned. Returns nil if KEY does not exist in
-TRIE."
-  (let (trie--deleted-node)
-    (declare (special trie--deleted-node))
-    (trie--do-delete (trie--root trie) key
+TRIE.
+
+If TEST is supplied, it should be a function that accepts two
+arguments: the key being deleted, and its associated data. The
+key will then only be deleted if TEST returns non-nil."
+  (let (trie--deleted-node
+	(trie--delete-key key)
+	(trie--delete-test test))
+    (declare (special trie--deleted-node)
+	     (special trie--delete-key))
+    (trie--do-delete (trie--root trie) key trie--delete-test
 		     (trie--deletefun trie)
 		     (trie--emptyfun trie)
 		     (trie--cmpfun trie))
-    (when trie--deleted-node
-      (cons key (trie--node-data trie--deleted-node)))))
+    (if trie--deleted-node
+	(cons key (trie--node-data trie--deleted-node)))))
 
 
-(defun trie--do-delete (node seq deletefun emptyfun cmpfun)
+(defun trie--do-delete (node seq trie--do-delete-test deletefun emptyfun cmpfun)
   ;; Delete SEQ starting from trie node NODE, and return non-nil if we
-  ;; deleted a node.
-  (declare (special trie--deleted-node))
+  ;; deleted a node. If TEST is supplied, it is called with two arguments, the
+  ;; key being deleted and the associated data, and the deletion is only
+  ;; carried out if it returns non-nil.
+  (declare (special trie--deleted-node)
+	   (special trie--delete-key))
   ;; if SEQ is empty, try to delete data node and return non-nil if we did
   ;; (return value of DELETEFUN is the deleted data, which is always non-nil
   ;; for a trie)
@@ -942,7 +952,11 @@ TRIE."
 	    (funcall deletefun
 		     (trie--node-subtree node)
 		     (trie--node-create-dummy 'trie--terminator)
-		     nil nil cmpfun))
+		     (when trie--do-delete-test
+		       (lambda (n)
+			 (funcall trie--do-delete-test
+				  trie--delete-key (trie--node-data n))))
+		     nil cmpfun))
     ;; otherwise, delete on down (return value of DELETEFUN is the deleted
     ;; data, which is always non-nil for a trie)
     (funcall deletefun
@@ -950,7 +964,8 @@ TRIE."
 	     (trie--node-create-dummy (elt seq 0))
 	     (lambda (n)
 	       (and (trie--do-delete n (trie--subseq seq 1)
-				       deletefun emptyfun cmpfun)
+				     trie--do-delete-test
+				     deletefun emptyfun cmpfun)
 		    (funcall emptyfun (trie--node-subtree n))))
 	     nil cmpfun)))
 
