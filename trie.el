@@ -195,6 +195,33 @@ If START or END is negative, it counts from the end."
 
 
 ;;; ================================================================
+;;;                     Miscelaneous macros
+
+(defun trie-construct-sortfun (cmpfun &optional reverse)
+  "Construct function to compare key sequences, based on a CMPFUN
+that compares individual elements of the sequence. Order is
+reversed if REVERSE is non-nil."
+  (if reverse
+      (byte-compile
+       `(lambda (a b)
+	  (let (cmp)
+	    (catch 'compared
+	      (dotimes (i (min (length a) (length b)))
+		(cond ((,cmpfun (elt b i) (elt a i)) (throw 'compared t))
+		      ((,cmpfun (elt a i) (elt b i)) (throw 'compared nil))))
+	      (< (length a) (length b))))))
+    (byte-compile
+     `(lambda (a b)
+	(let (cmp)
+	  (catch 'compared
+	    (dotimes (i (min (length a) (length b)))
+	      (cond ((,cmpfun (elt a i) (elt b i)) (throw 'compared t))
+		    ((,cmpfun (elt b i) (elt a i)) (throw 'compared nil))))
+	    (< (length a) (length b))))))))
+
+
+
+;;; ================================================================
 ;;;     Internal functions only for use within the trie package
 
 
@@ -407,10 +434,9 @@ If START or END is negative, it counts from the end."
 	(setq prefix (list prefix))
       (setq prefix
 	    (sort prefix
-		  (eval (macroexpand
-			 `(trie-construct-sortfun
-			   ,(trie--comparison-function trie)
-			   ,(not reverse)))))))
+		  (trie-construct-sortfun
+		   (trie--comparison-function trie)
+		   (not reverse)))))
     (dolist (pfx prefix)
       (when (setq node (trie--node-find trie pfx))
 	(push (cons pfx (funcall (trie--stack-createfun trie)
@@ -479,27 +505,6 @@ If START or END is negative, it counts from the end."
    (trie--node-subtree trie--root)
    reverse))
 
-
-
-(defmacro trie-construct-sortfun (cmpfun &optional reverse)
-  "Construct function to compare key sequences, based on a CMPFUN
-that compares individual elements of the sequence. Order is
-reversed if REVERSE is non-nil."
-  (if reverse
-      `(lambda (a b)
-	 (let (cmp)
-	   (catch 'compared
-	     (dotimes (i (min (length a) (length b)))
-	       (cond ((,cmpfun (elt b i) (elt a i)) (throw 'compared t))
-		     ((,cmpfun (elt a i) (elt b i)) (throw 'compared nil))))
-	     (< (length a) (length b)))))
-    `(lambda (a b)
-       (let (cmp)
-	 (catch 'compared
-	   (dotimes (i (min (length a) (length b)))
-	     (cond ((,cmpfun (elt a i) (elt b i)) (throw 'compared t))
-		   ((,cmpfun (elt b i) (elt a i)) (throw 'compared nil))))
-	   (< (length a) (length b)))))))
 
 
 (defmacro trie--complete-construct-accumulator (maxnum filter)
@@ -1063,9 +1068,8 @@ included in the results, and does not count towards MAXNUM."
       ;; sort list of prefixes if sorting completions lexically
       (when (null rankfun)
 	(setq prefix
-	      (sort prefix (eval (macroexpand
-				  `(trie-construct-sortfun
-				    ,(trie--comparison-function trie))))))))
+	      (sort prefix (trie-construct-sortfun
+			    (trie--comparison-function trie))))))
 
     ;; construct function to accumulate completions (might as well save a few
     ;; cycles in the `trie--mapc' call by constructing different functions
