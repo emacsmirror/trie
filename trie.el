@@ -271,13 +271,7 @@ reversed if REVERSE is non-nil."
 		   (cond
 		    ((eq type 'avl) 'avl-tree-stack-empty-p)
 		    (t (error "trie--create: unknown trie TYPE, %s" type))))
-		  (cmpfun `(lambda (a b)
-			     (setq a (trie--node-split a)
-				   b (trie--node-split b))
-			     (cond ((eq a 'trie--terminator)
-				    (if (eq b 'trie--terminator) nil t))
-				   ((eq b 'trie--terminator) nil)
-				   (t (,comparison-function a b)))))
+		  (cmpfun (trie--wrap-cmpfun comparison-function))
 		  (root (trie--node-create-root createfun cmpfun))
 		  ))
    (:constructor trie--create-custom
@@ -293,13 +287,7 @@ reversed if REVERSE is non-nil."
 		  (stack-popfun 'avl-tree-stack-pop)
 		  (stack-emptyfun 'avl-tree-stack-empty-p)
 		  &aux
-		  (cmpfun `(lambda (a b)
-			     (setq a (trie--node-split a)
-				   b (trie--node-split b))
-			     (cond ((eq a 'trie--terminator)
-				    (if (eq b 'trie--terminator) nil t))
-				   ((eq b 'trie--terminator) nil)
-				   (t (,comparison-function a b)))))
+		  (cmpfun (trie--wrap-cmpfun comparison-function))
 		  (root (trie--node-create-root createfun cmpfun))
 		  ))
    (:copier nil))
@@ -308,15 +296,16 @@ reversed if REVERSE is non-nil."
   stack-createfun stack-popfun stack-emptyfun)
 
 
-(defmacro trie--wrap-cmpfun (cmpfun)
+(defun trie--wrap-cmpfun (cmpfun)
   ;; wrap CMPFUN for use in a subtree
-  `(lambda (a b)
-     (setq a (trie--node-split a)
-	   b (trie--node-split b))
-     (cond ((eq a 'trie--terminator)
-	    (if (eq b 'trie--terminator) nil t))
-	   ((eq b 'trie--terminator) nil)
-	   (t (,cmpfun a b)))))
+  (byte-compile
+   `(lambda (a b)
+      (setq a (trie--node-split a)
+	    b (trie--node-split b))
+      (cond ((eq a 'trie--terminator)
+	     (if (eq b 'trie--terminator) nil t))
+	    ((eq b 'trie--terminator) nil)
+	    (t (,cmpfun a b))))))
 
 
 
@@ -900,12 +889,17 @@ Returns the new association of KEY."
     ;; wrap it for passing to `trie--insertfun'.
     (when (and trie-insert--old-node-flag trie-insert--updatefun)
       (setq trie-insert--update-old
-	    (eval (macroexpand
-		   `(lambda (new old)
-		      (setf (trie--node-data old)
-			    (,trie-insert--updatefun (trie--node-data new)
-						     (trie--node-data old)))
-		      old)))))
+	    (lambda (new old)
+	      (setf (trie--node-data old)
+		    ;; FIXME: trie-insert--updatefun ought to be safely
+		    ;;        protected by a lexical closure...except Emacs
+		    ;;        doesn't have them, so there's a risk of a nasty
+		    ;;        dynamical scoping bug if UPDATEFUN refers to
+		    ;;        trie-insert--updatefun
+		    (funcall trie-insert--updatefun
+			     (trie--node-data new)
+			     (trie--node-data old)))
+	      old)))
     ;; Create or update data node.
     (setq node (funcall (trie--insertfun trie)
 			(trie--node-subtree node)
