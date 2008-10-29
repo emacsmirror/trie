@@ -195,33 +195,6 @@ If START or END is negative, it counts from the end."
 
 
 ;;; ================================================================
-;;;                     Miscelaneous macros
-
-(defun trie-construct-sortfun (cmpfun &optional reverse)
-  "Construct function to compare key sequences, based on a CMPFUN
-that compares individual elements of the sequence. Order is
-reversed if REVERSE is non-nil."
-  (if reverse
-      (byte-compile
-       `(lambda (a b)
-	  (let (cmp)
-	    (catch 'compared
-	      (dotimes (i (min (length a) (length b)))
-		(cond ((,cmpfun (elt b i) (elt a i)) (throw 'compared t))
-		      ((,cmpfun (elt a i) (elt b i)) (throw 'compared nil))))
-	      (< (length a) (length b))))))
-    (byte-compile
-     `(lambda (a b)
-	(let (cmp)
-	  (catch 'compared
-	    (dotimes (i (min (length a) (length b)))
-	      (cond ((,cmpfun (elt a i) (elt b i)) (throw 'compared t))
-		    ((,cmpfun (elt b i) (elt a i)) (throw 'compared nil))))
-	    (< (length a) (length b))))))))
-
-
-
-;;; ================================================================
 ;;;     Internal functions only for use within the trie package
 
 
@@ -306,7 +279,6 @@ reversed if REVERSE is non-nil."
 	     (if (eq b 'trie--terminator) nil t))
 	    ((eq b 'trie--terminator) nil)
 	    (t (,cmpfun a b))))))
-
 
 
 ;;; ----------------------------------------------------------------
@@ -466,34 +438,35 @@ reversed if REVERSE is non-nil."
 
 
 ;;; ----------------------------------------------------------------
-;;;               Miscelaneous internal functions
+;;;               Miscelaneous internal macros
 
-(defun trie--mapc (trie--mapc--function trie--mapc--mapfun
-		   trie--root seq &optional reverse)
+(defun trie--mapc (--trie--mapc--function --trie--mapc--mapfun
+		   --trie--mapc--root --trie--mapc--seq
+		   &optional --trie--mapc--reverse)
   ;; Apply TRIE--MAPC--FUNCTION to all elements in a trie beneath
-  ;; TRIE--ROOT, which should correspond to the sequence
-  ;; SEQ. TRIE--MAPC--FUNCTION is passed two arguments: the trie node
-  ;; itself and the sequence it corresponds to. It is applied in
-  ;; ascending order, or descending order if REVERSE is non-nil.
+  ;; TRIE--MAPC--ROOT, which should correspond to the sequence
+  ;; TRIE--MAPC--SEQ. TRIE--MAPC--FUNCTION is passed two arguments: the trie
+  ;; node itself and the sequence it corresponds to. It is applied in
+  ;; ascending order, or descending order if TRIE--MAPC--REVERSE is non-nil.
 
-  ;; The absurdly long argument names are to lessen the likelihood of
-  ;; dynamical scoping bugs, caused by a supplied function binding a
-  ;; variable with the same name as one of the arguments.
+  ;; The absurd argument names are to lessen the likelihood of dynamical
+  ;; scoping bugs caused by a supplied function binding a variable with the
+  ;; same name as one of the arguments.
   (funcall
-   trie--mapc--mapfun
-   (lambda (node)
+   --trie--mapc--mapfun
+   (lambda (--trie--mapc--node)
      ;; data node: apply function
-     (if (trie--node-data-p node)
-	 (funcall trie--mapc--function node seq)
+     (if (trie--node-data-p --trie--mapc--node)
+	 (funcall --trie--mapc--function --trie--mapc--node --trie--mapc--seq)
        ;; internal node: append split value to seq and keep descending
-       (trie--mapc trie--mapc--function trie--mapc--mapfun node
-		     (trie--seq-append (copy-sequence seq)
-				       (trie--node-split node))
-		     reverse)))
-   ;; TRIE--MAPC--MAPFUN target
-   (trie--node-subtree trie--root)
-   reverse))
-
+       (trie--mapc --trie--mapc--function --trie--mapc--mapfun
+		   --trie--mapc--node
+		   (trie--seq-append (copy-sequence --trie--mapc--seq)
+				     (trie--node-split --trie--mapc--node))
+		   --trie--mapc--reverse)))
+   ;; --TRIE--MAPC--MAPFUN target
+   (trie--node-subtree --trie--mapc--root)
+   --trie--mapc--reverse))
 
 
 (defmacro trie--complete-construct-accumulator (maxnum filter)
@@ -642,7 +615,10 @@ defined by COMPARISON-FUNCTION.
 
   (STACK-EMPTYFUN stack)
 
-should return non-nil if the stack is empty, nil otherwise.")
+should return non-nil if the stack is empty, nil otherwise.
+
+Note: to avoid nasty dynamic scoping bugs, the supplied functions
+must *not* bind any variables with names commencing \"--\".")
 
 
 
@@ -658,6 +634,29 @@ should return non-nil if the stack is empty, nil otherwise.")
   "Return t if the TRIE is empty, nil otherwise."
   (funcall (trie--emptyfun trie)
 	   (trie--node-subtree (trie--root trie))))
+
+
+(defun trie-construct-sortfun (cmpfun &optional reverse)
+  "Construct function to compare key sequences, based on a CMPFUN
+that compares individual elements of the sequence. Order is
+reversed if REVERSE is non-nil."
+  (if reverse
+      (byte-compile
+       `(lambda (a b)
+	  (let (cmp)
+	    (catch 'compared
+	      (dotimes (i (min (length a) (length b)))
+		(cond ((,cmpfun (elt b i) (elt a i)) (throw 'compared t))
+		      ((,cmpfun (elt a i) (elt b i)) (throw 'compared nil))))
+	      (< (length a) (length b))))))
+    (byte-compile
+     `(lambda (a b)
+	(let (cmp)
+	  (catch 'compared
+	    (dotimes (i (min (length a) (length b)))
+	      (cond ((,cmpfun (elt a i) (elt b i)) (throw 'compared t))
+		    ((,cmpfun (elt b i) (elt a i)) (throw 'compared nil))))
+	    (< (length a) (length b))))))))
 
 
 
@@ -676,12 +675,15 @@ string) sets the type of sequence passed to FUNCTION. Defaults to
 vector.
 
 FUNCTION is applied in ascending order, or descending order if
-REVERSE is non-nil."
-  (let ((trie-mapc--function function)) ; try to avoid dynamic binding bugs
+REVERSE is non-nil.
+
+Note: to avoid nasty dynamic scoping bugs, FUNCTION must *not*
+bind any variables with names commencing \"--\"."
+  (let ((--trie-map--function function)) ; try to avoid dynamic scoping bugs
     (trie--mapc
      (lambda (node seq)
        (setf (trie--node-data node)
-	     (funcall trie-mapc--function seq (trie--node-data node))))
+	     (funcall --trie-map--function seq (trie--node-data node))))
      (trie--mapfun trie)
      (trie--root trie)
      (cond ((eq type 'string) "") ((eq type 'lisp) ()) (t []))
@@ -699,12 +701,14 @@ string) sets the type of sequence passed to FUNCTION. Defaults to
 vector.
 
 FUNCTION is applied in ascending order, or descending order if
-REVERSE is non-nil."
-  (let ((trie-mapc--function function)) ; try to avoid dynamic binding bugs
+REVERSE is non-nil.
+
+Note: to avoid nasty dynamic scoping bugs, FUNCTION must *not*
+bind any variables with names commencing \"--\"."
+  (let ((--trie-mapc--function function)) ; try to avoid dynamic scoping bugs
     (trie--mapc
      (lambda (node seq)
-       (funcall trie-mapc--function seq
-		(trie--node-data node)))
+       (funcall --trie-mapc--function seq (trie--node-data node)))
      (trie--mapfun trie)
      (trie--root trie)
      (cond ((eq type 'string) "") ((eq type 'lisp) ()) (t []))
@@ -725,20 +729,25 @@ function `string' to the individual elements of key sequences
 stored in TRIE.
 
 The FUNCTION is applied and the results combined in ascending
-order, or descending order if REVERSE is non-nil."
-  (let ((trie-mapf--function function) ; try to avoid dynamic binding bugs
-	trie-mapf--accumulate)
+order, or descending order if REVERSE is non-nil.
+
+Note: to avoid nasty dynamic scoping bugs, FUNCTION and
+COMBINATOR must *not* bind any variables with names
+commencing \"--\"."
+  (let ((--trie-mapf--function function) ; try to avoid dynamic scoping bugs
+	--trie-mapf--accumulate)
     (trie--mapc
      (lambda (node seq)
-       (setq trie-mapf--accumulate
+       (setq --trie-mapf--accumulate
 	     (funcall combinator
-		      (funcall trie-mapf--function seq (trie--node-data node))
-		      trie-mapf--accumulate)))
+		      (funcall --trie-mapf--function
+			       seq (trie--node-data node))
+		      --trie-mapf--accumulate)))
      (trie--mapfun trie)
      (trie--root trie)
      (cond ((eq type 'string) "") ((eq type 'lisp) ()) (t []))
      reverse)
-    trie-mapf--accumulate))
+    --trie-mapf--accumulate))
 
 
 (defun trie-mapcar (function trie &optional type reverse)
@@ -760,7 +769,10 @@ then
 
   (trie-mapf function 'cons trie type (not reverse))
 
-is more efficient."
+is more efficient.
+
+Note: to avoid nasty dynamic scoping bugs, FUNCTION must *not*
+bind any variables with names commencing \"--\"."
   (nreverse (trie-mapf function 'cons trie type reverse)))
 
 
@@ -867,9 +879,13 @@ UPDATEFUN is called with two arguments: DATA and the existing
 association of KEY. Its return value becomes the new association
 for KEY.
 
-Returns the new association of KEY."
-  (let ((trie-insert--updatefun updatefun)
-	trie-insert--update-old
+Returns the new association of KEY.
+
+Note: to avoid nasty dynamic scoping bugs, UPDATEFUN must *not*
+bind any variables with names commencing \"--\"."
+  ;; rename UPDATEFUN argument to try to avoid dynamic scoping bugs
+  (let ((--trie-insert--updatefun updatefun)
+	update-old
 	trie-insert--old-node-flag
 	(node (trie--root trie))
 	(len (length key))
@@ -887,16 +903,11 @@ Returns the new association of KEY."
 			  (trie--cmpfun trie))))
     ;; If we're using an existing data node, and UPDATEFUN was supplied,
     ;; wrap it for passing to `trie--insertfun'.
-    (when (and trie-insert--old-node-flag trie-insert--updatefun)
-      (setq trie-insert--update-old
+    (when (and trie-insert--old-node-flag --trie-insert--updatefun)
+      (setq update-old
 	    (lambda (new old)
 	      (setf (trie--node-data old)
-		    ;; FIXME: trie-insert--updatefun ought to be safely
-		    ;;        protected by a lexical closure...except Emacs
-		    ;;        doesn't have them, so there's a risk of a nasty
-		    ;;        dynamical scoping bug if UPDATEFUN refers to
-		    ;;        trie-insert--updatefun
-		    (funcall trie-insert--updatefun
+		    (funcall --trie-insert--updatefun
 			     (trie--node-data new)
 			     (trie--node-data old)))
 	      old)))
@@ -904,7 +915,7 @@ Returns the new association of KEY."
     (setq node (funcall (trie--insertfun trie)
 			(trie--node-subtree node)
 			(trie--node-create-data data)
-			trie-insert--update-old
+			update-old
 			(trie--cmpfun trie)))
     (trie--node-data node)))  ; return new data
 
@@ -922,51 +933,66 @@ TRIE.
 
 If TEST is supplied, it should be a function that accepts two
 arguments: the key being deleted, and its associated data. The
-key will then only be deleted if TEST returns non-nil."
-  (let (trie--deleted-node
-	(trie--delete-key key)
-	(trie--delete-test test))
-    (declare (special trie--deleted-node)
-	     (special trie--delete-key))
-    (trie--do-delete (trie--root trie) key trie--delete-test
+key will then only be deleted if TEST returns non-nil.
+
+Note: to avoid nasty dynamic scoping bugs, TEST must *not* bind
+any variables with names commencing \"--\"."
+  (let (--trie-deleted--node
+	(--trie-delete--key key))
+    (declare (special --trie-deleted--node)
+	     (special --trie-delete--key))
+    (trie--do-delete (trie--root trie) key test
 		     (trie--deletefun trie)
 		     (trie--emptyfun trie)
 		     (trie--cmpfun trie))
-    (if trie--deleted-node
-	(cons key (trie--node-data trie--deleted-node)))))
+    (when --trie-deleted--node
+      (cons key (trie--node-data --trie-deleted--node)))))
 
 
-(defun trie--do-delete (node seq trie--do-delete-test deletefun emptyfun cmpfun)
-  ;; Delete SEQ starting from trie node NODE, and return non-nil if we
-  ;; deleted a node. If TEST is supplied, it is called with two arguments, the
-  ;; key being deleted and the associated data, and the deletion is only
-  ;; carried out if it returns non-nil.
-  (declare (special trie--deleted-node)
-	   (special trie--delete-key))
-  ;; if SEQ is empty, try to delete data node and return non-nil if we did
-  ;; (return value of DELETEFUN is the deleted data, which is always non-nil
-  ;; for a trie)
-  (if (= (length seq) 0)
-      (setq trie--deleted-node
-	    (funcall deletefun
+(defun trie--do-delete (node --trie--do-delete--seq
+			     --trie--do-delete--test
+			     --trie--do-delete--deletefun
+			     --trie--do-delete--emptyfun
+			     --trie--do-delete--cmpfun)
+  ;; Delete --TRIE--DO-DELETE--SEQ starting from trie node NODE, and return
+  ;; non-nil if we deleted a node. If --TRIE--DO-DELETE--TEST is supplied, it
+  ;; is called with two arguments, the key being deleted and the associated
+  ;; data, and the deletion is only carried out if it returns non-nil.
+
+  ;; The absurd argument names are to lessen the likelihood of dynamical
+  ;; scoping bugs caused by a supplied function binding a variable with the
+  ;; same name as one of the arguments, which would cause a nasty bug when the
+  ;; lambda's (below) are called.
+  (declare (special --trie-deleted--node)
+	   (special --trie-delete--key))
+  ;; if --TRIE--DO-DELETE--SEQ is empty, try to delete data node and return
+  ;; non-nil if we did (return value of --TRIE--DO-DELETE--DELETEFUN is the
+  ;; deleted data, which is always non-nil for a trie)
+  (if (= (length --trie--do-delete--seq) 0)
+      (setq --trie-deleted--node
+	    (funcall --trie--do-delete--deletefun
 		     (trie--node-subtree node)
 		     (trie--node-create-dummy 'trie--terminator)
-		     (when trie--do-delete-test
+		     (when --trie--do-delete--test
 		       (lambda (n)
-			 (funcall trie--do-delete-test
-				  trie--delete-key (trie--node-data n))))
-		     nil cmpfun))
-    ;; otherwise, delete on down (return value of DELETEFUN is the deleted
-    ;; data, which is always non-nil for a trie)
-    (funcall deletefun
+			 (funcall --trie--do-delete--test
+				  --trie-delete--key (trie--node-data n))))
+		     nil --trie--do-delete--cmpfun))
+    ;; otherwise, delete on down (return value of --TRIE--DO-DELETE--DELETEFUN
+    ;; is the deleted data, which is always non-nil for a trie)
+    (funcall --trie--do-delete--deletefun
 	     (trie--node-subtree node)
-	     (trie--node-create-dummy (elt seq 0))
+	     (trie--node-create-dummy (elt --trie--do-delete--seq 0))
 	     (lambda (n)
-	       (and (trie--do-delete n (trie--subseq seq 1)
-				     trie--do-delete-test
-				     deletefun emptyfun cmpfun)
-		    (funcall emptyfun (trie--node-subtree n))))
-	     nil cmpfun)))
+	       (and (trie--do-delete
+		     n (trie--subseq --trie--do-delete--seq 1)
+		     --trie--do-delete--test
+		     --trie--do-delete--deletefun
+		     --trie--do-delete--emptyfun
+		     --trie--do-delete--cmpfun)
+		    (funcall --trie--do-delete--emptyfun
+			     (trie--node-subtree n))))
+	     nil --trie--do-delete--cmpfun)))
 
 
 
@@ -1065,14 +1091,11 @@ included in the results, and does not count towards MAXNUM."
 	      (sort prefix (trie-construct-sortfun
 			    (trie--comparison-function trie))))))
 
-    ;; construct function to accumulate completions (might as well save a few
-    ;; cycles in the `trie--mapc' call by constructing different functions
-    ;; depending on whether MAXNUM and FILTER were specified)
+    ;; construct function to accumulate completions
     (if rankfun
 	(setq accumulator
 	      (trie--complete-construct-ranked-accumulator maxnum filter))
-      (setq accumulator (trie--complete-construct-accumulator
-			 maxnum filter)))
+      (setq accumulator (trie--complete-construct-accumulator maxnum filter)))
 
     ;; accumulate completions
     (catch 'trie-complete--done
