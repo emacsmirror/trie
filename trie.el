@@ -30,28 +30,46 @@
 
 ;;; Commentary:
 ;;
-;; A trie stores keys that are ordered sequences of elements (vectors,
-;; lists or strings in Elisp), in such a way that both storage and
-;; retrieval are space- and time-efficient. But, more importantly,
-;; searching for keys that match various patterns can also be done
-;; efficiently. For example, returning all strings with a given prefix,
-;; and sorting them in an arbitrary order. Or searching for keys matching
-;; a pattern containing wildcards (not yet implemented in this package).
+;; Quick Overview
+;; --------------
+;; A trie is a data structure used to store keys that are ordered
+;; sequences of elements (vectors, lists or strings in Elisp), in such a
+;; way that both storage and retrieval are reasonably space- and
+;; time-efficient. But, more importantly, searching for keys that match
+;; various patterns can also be done efficiently. For example, returning
+;; all strings with a given prefix, or searching for keys matching a
+;; pattern containing wildcards, or searching for all keys within a given
+;; Lewenstein distance of given string (though the latter two are not yet
+;; implemented in this package - code contributions welcome!).
+;;
+;; You create a ternary search tree using `trie-create', create an
+;; association using `trie-insert', retrieve an association using
+;; `trie-lookup', find completions of a sequence using `trie-complete',
+;; and map over a tree using `trie-map', `trie-mapc', `trie-mapcar', or
+;; `trie-mapf'. Using `trie-stack', you can create an object that allows
+;; the contents of the trie to be used like a stack; `trie-stack-pop'
+;; pops elements off the stack one-by-one, whilst `trie-stack-push'
+;; pushes things onto the stack.
 ;;
 ;; Note that there are two uses for a trie: as a lookup table, in which
-;; case only presence of absence of a key is significant, or as an
-;; associative array, in which case keys are associated with data. Other
-;; similar data types often only implement lookup tables, leaving it up
-;; to you to implement an associative array on top of this (by storing
-;; key+data pairs in the data structure's keys, then defining a
-;; comparison function that only compares the key part). However, this
-;; would be somewhat space-inefficient in a trie, so this package does
-;; the opposite: it implements associative arrays, and leaves it up to
-;; you to use them as lookup tables if you so desire.
+;; case only the presence or absence of a key in the trie is significant,
+;; or as an associative array, in which case each key carries some
+;; associated data. Libraries for other data structure often only
+;; implement lookup tables, leaving it up to you to implement an
+;; associative array on top of this (by storing key+data pairs in the
+;; data structure's keys, then defining a comparison function that only
+;; compares the key part). However, for a trie, this would be slightly
+;; less space-efficient than it needs to be, so this package does the
+;; opposite: it implements associative arrays, and leaves it up to you to
+;; use them as lookup tables if you so desire (with no loss of
+;; space-efficiency).
 ;;
+;;
+;; Different Types of Trie
+;; -----------------------
 ;; There are numerous ways to implement trie data structures internally,
-;; each with advantages and disadvantages. By viewing a trie as a tree
-;; whose nodes are themselves lookup tables, this package is able to
+;; each with its own trade-offs. By viewing a trie as a tree whose nodes
+;; are themselves lookup tables for key elements, this package is able to
 ;; support all types of trie, providing there exists (or you write!) an
 ;; Elisp implementation of the corresponding type of lookup table. The
 ;; best implementation will depend on what trade-offs are appropriate for
@@ -62,66 +80,61 @@
 ;;
 ;; One of the most effective all-round implementations of a trie is a
 ;; ternary search tree, which can be viewed as a tree of binary trees. If
-;; simple binary search trees are used for the nodes of the trie, we get
-;; a basic ternary search tree. If self-balancing binary trees are used
+;; basic binary search trees are used for the nodes of the trie, we get a
+;; basic ternary search tree. If self-balancing binary trees are used
 ;; (e.g. AVL or red-black trees), we get a self-balancing ternary search
 ;; tree. If splay trees are used, we get yet another self-organising
-;; variant of a ternary search tree. All ternary search trees have in
-;; common reasonably good space-efficiency. The time-efficiency for trie
-;; operations is also reasonably good, providing the underlying binary
-;; trees are balanced. Assuming the binary trees are balanced, all
-;; variants of ternary search trees described below have the same
-;; time-complexity for all trie operations.
+;; variant of a ternary search tree. All ternary search trees have, in
+;; common, good space-efficiency. The time-efficiencies for the various
+;; trie operations are also good, assuming the underlying binary trees
+;; are balanced. Under that assumption, all variants of ternary search
+;; trees described below have the same asymptotic time-complexity for all
+;; trie operations.
 ;;
-;; Self-balancing trees ensure this is the case, with the usual
-;; trade-offs between different the types of self-balancing binary tree:
-;; AVL trees are slightly more efficient for lookup operations than
-;; red-black trees, but are slightly less efficienct for insertion
-;; operations, and less efficient for deletion operations, as compared to
-;; red-black trees. Splay trees give good average-case complexity and are
-;; simpler to implement than AVL or red-black trees (which can mean
-;; faster in practice!), at the expense of poor worst-case complexity.
+;; Self-balancing trees ensure the underlying binary trees are always
+;; close to perfectly balanced, with the usual trade-offs between the
+;; different the types of self-balancing binary tree: AVL trees are
+;; slightly more efficient for lookup operations than red-black trees,
+;; but are slightly less efficienct for insertion operations, and less
+;; efficient for deletion operations. Splay trees give good average-case
+;; complexity and are simpler to implement than AVL or red-black trees
+;; (which can mean they're faster in practice!), at the expense of poor
+;; worst-case complexity.
 ;;
-;; If your tries are going to be static (i.e. created once and rarely or
-;; never changed), then using perfectly balanced binary search trees
-;; might be more appropriate. Perfectly balancing the binary trees is
-;; very inefficient, but it only has to be done once after the trie is
-;; created, or on the rare occarions that it is modified. Lookup
-;; operations will then be as efficient as possible for ternary search
-;; trees.
+;; If your tries are going to be static (i.e. created once and rarely
+;; modified), then using perfectly balanced binary search trees might be
+;; more appropriate. Perfectly balancing the binary trees is very
+;; inefficient, but it only has to be when the trie is first created or
+;; modified. Lookup operations will then be as efficient as possible for
+;; ternary search trees, and the implementation will be much simpler (so
+;; probably faster) than a self-balancing tree, without the space and
+;; time overhead required to keep track of rebalancing.
 ;;
 ;; On the other hand, adding data to a binary search tree in a random
 ;; order usually results in a reasonably balanced tree. If this is the
-;; likely scenario, using a simple binary tree will likely be quite
-;; efficient, and, being simpler to implement, could be faster overall.
+;; likely scenario, using a basic binary tree without bothering to
+;; balance it at all might be quite efficient, and, being even simpler to
+;; implement, could be faster overall.
 ;;
 ;; A digital trie is a different implementation of a trie, which can be
 ;; viewed as a tree of arrays, and has different space- and
-;; time-complexity than a ternary search tree. Essentially, a digital
-;; trie has worse space-complexity, but better time-complexity. Using
-;; hash tables instead of arrays for the nodes gives something similar to
-;; a digital trie, potentially with better space-complexity and the same
-;; time-complexity most of the time, but at the expense of occasional
-;; significant inefficiency when inserting and deleting (whenever the
-;; hash table has to be resized). Indeed, an array can be viewed as a
-;; perfect hash table, but as such it requires the number of possible
-;; values to be known in advance.
+;; time-complexities than a ternary search tree. Roughly speaking, a
+;; digital trie has worse space-complexity, but better
+;; time-complexity. Using hash tables instead of arrays for the nodes
+;; gives something similar to a digital trie, potentially with better
+;; space-complexity and the same amortised time-complexity, but at the
+;; expense of occasional significant inefficiency when inserting and
+;; deleting (whenever the hash table has to be resized). Indeed, an array
+;; can be viewed as a perfect hash table, but as such it requires the
+;; number of possible values to be known in advance.
 ;;
 ;; Finally, if you really need optimal efficiency from your trie, you
-;; could even write a custom lookup table optimised for your specific
-;; needs.
+;; could even write a custom type of underlying lookup table, optimised
+;; for your specific needs.
 ;;
 ;;
-;; You create a ternary search tree using `trie-create', create an
-;; association using `trie-insert', retrieve an association using
-;; `trie-member', find completions of a sequence using
-;; `trie-complete', find completions and sort them in a specified order
-;; using `trie-complete-ordered', and map over a tree using
-;; `trie-map' or `trie-mapcar'.
-;;
-;;
-;; This package uses the AVL tree package avl-tree.el and the ternary
-;; heap package heap.el.
+;; This package uses the AVL tree package avl-tree.el and the heap
+;; package heap.el.
 
 
 ;;; Change Log:
@@ -132,17 +145,19 @@
 ;;   has numerous advantages: self-balancing trees guarantee O(log n)
 ;;   complexity regardless of how the tree is built; deletion is now done
 ;;   properly.
-;; * Up to "tstree"->"trie" renaming, many functions are drop-in replacements
-;;   for tstree.el functions. However, insertion and rank functions are no
-;;   longer stored in the data structure, so corresponidng arguments are no
-;;   longer optional. A single `trie-complete' function now does both
-;;   lexically-sorted and arbitrary-sorted completion, with the rank function
-;;   passed as an optional argument in the latter case. And functions can no
-;;   longer operate over multiple data structures at once; i.e. they no longer
+;; * unlike tstree.el, trie.el is general enough to implement all sorts
+;;   of tries, not just ternary search trees (though these remain the
+;;   default).
+;; * Up to "tstree"->"trie" renaming, many functions are drop-in
+;;   replacements for tstree.el functions. However, insertion and rank
+;;   functions are no longer stored in the data structure, so
+;;   corresponidng arguments are no longer optional. A single
+;;   `trie-complete' function now deals with sorting completions in both
+;;   lexical or arbitrary order, the ranking function being passed as an
+;;   optional argument in the latter case. And functions can no longer
+;;   operate over multiple data structures at once; i.e. they no longer
 ;;   accept lists of trees as arguments. (These features belong in higher
 ;;   level libraries, and the efficiency loss is negligible.)
-;; * trie.el is now general enough to implement all sorts of tries, not just
-;;   ternary search trees (though these remain the default).
 
 
 
@@ -200,6 +215,9 @@ If START or END is negative, it counts from the end."
 
 ;;; ----------------------------------------------------------------
 ;;;           Functions and macros for handling a trie.
+
+;; symbol used to denote a trie leaf node
+(defconst trie--terminator '--trie--terminator)
 
 (defstruct
   (trie-
@@ -275,9 +293,9 @@ If START or END is negative, it counts from the end."
    `(lambda (a b)
       (setq a (trie--node-split a)
 	    b (trie--node-split b))
-      (cond ((eq a 'trie--terminator)
-	     (if (eq b 'trie--terminator) nil t))
-	    ((eq b 'trie--terminator) nil)
+      (cond ((eq a trie--terminator)
+	     (if (eq b trie--terminator) nil t))
+	    ((eq b trie--terminator) nil)
 	    (t (,cmpfun a b))))))
 
 
@@ -293,7 +311,7 @@ If START or END is negative, it counts from the end."
 		  &aux (subtree (funcall (trie--createfun tree)
 					 (trie--cmpfun tree)))))
    (:constructor trie--node-create-data
-		 (data &aux (split 'trie--terminator) (subtree data)))
+		 (data &aux (split trie--terminator) (subtree data)))
    (:constructor trie--node-create-dummy
 		 (split &aux (subtree nil)))
    (:constructor trie--node-create-root
@@ -309,7 +327,16 @@ If START or END is negative, it counts from the end."
 
 (defmacro trie--node-data-p (node)
   ;; Return t if NODE is a data node, nil otherwise.
-  `(eq (trie--node-split ,node) 'trie--terminator))
+  `(eq (trie--node-split ,node) trie--terminator))
+
+(defmacro trie--node-p (node)
+  ;; Return t if NODE is a trie--node, nil otherwise.
+  ;; Have to define this ourselves, because we created a defstruct
+  ;; without any identifying tags (i.e. (:type vector)) for efficiency.
+  `(or (trie--node-data-p ,node)
+       (and (vectorp ,node)
+	    (= (length ,node) 2)
+	    (trie--p (trie--node-subtree ,node)))))
 
 
 (defun trie--node-find (trie sequence)
@@ -332,7 +359,7 @@ If START or END is negative, it counts from the end."
   ;; its subtree.
   `(funcall (trie--lookupfun ,trie)
 	    (trie--node-subtree ,node)
-	    (trie--node-create-dummy 'trie--terminator)
+	    (trie--node-create-dummy trie--terminator)
 	    nil (trie--cmpfun ,trie)))
 
 
@@ -410,7 +437,10 @@ If START or END is negative, it counts from the end."
 (defun trie--stack-repopulate (stack)
   ;; Recursively push children of the node at the head of STACK onto the front
   ;; of STACK, until a data node is reached.
-  (when (not (trie-stack-empty-p stack))
+
+  ;; nothing to do if stack is empty or first element isn't a trie node
+  (when (and (not (trie-stack-empty-p stack))
+	     (trie--node-p (trie-stack-first stack)))
     (let ((node (funcall (trie--stack-stack-popfun stack)
 			 (cdar (trie--stack-store stack))))
 	  (seq (caar (trie--stack-store stack))))
@@ -847,6 +877,11 @@ Returns nil if the stack is empty."
       first)))
 
 
+(defun trie-stack-push (element trie-stack)
+  "Push ELEMENT onto TRIE-STACK."
+  (push element (trie--stack-store trie-stack)))
+
+
 (defun trie-stack-first (trie-stack)
   "Return the first element from TRIE-STACK, without removing it
 from the stack. Returns nil if the stack is empty."
@@ -972,7 +1007,7 @@ any variables with names commencing \"--\"."
       (setq --trie-deleted--node
 	    (funcall --trie--do-delete--deletefun
 		     (trie--node-subtree node)
-		     (trie--node-create-dummy 'trie--terminator)
+		     (trie--node-create-dummy trie--terminator)
 		     (when --trie--do-delete--test
 		       (lambda (n)
 			 (funcall --trie--do-delete--test
