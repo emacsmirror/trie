@@ -333,9 +333,9 @@ If START or END is negative, it counts from the end."
   ;; Return t if NODE is a trie--node, nil otherwise.
   ;; Have to define this ourselves, because we created a defstruct
   ;; without any identifying tags (i.e. (:type vector)) for efficiency.
-  `(or (trie--node-data-p ,node)
-       (and (vectorp ,node)
-	    (= (length ,node) 2)
+  `(and (vectorp ,node)
+	(= (length ,node) 2)
+	(or (trie--node-data-p ,node)
 	    (trie--p (trie--node-subtree ,node)))))
 
 
@@ -396,6 +396,7 @@ If START or END is negative, it counts from the end."
 			(funcall stack-createfun
 				 (trie--node-subtree (trie--root trie))
 				 reverse)))))
+	      (pushed '())
 	      ))
 	    (:constructor
 	     trie--completion-stack-create
@@ -408,9 +409,11 @@ If START or END is negative, it counts from the end."
 	      (stack-emptyfun (trie--stack-emptyfun trie))
 	      (store (trie--completion-stack-construct-store
 		      trie prefix reverse))
+	      (pushed '())
 	      ))
 	    (:copier nil))
-  reverse stack-createfun stack-popfun stack-emptyfun store)
+  reverse predicatefun stack-createfun stack-popfun stack-emptyfun
+  store pushed)
 
 
 (defun trie--completion-stack-construct-store (trie prefix reverse)
@@ -438,9 +441,8 @@ If START or END is negative, it counts from the end."
   ;; Recursively push children of the node at the head of STACK onto the front
   ;; of STACK, until a data node is reached.
 
-  ;; nothing to do if stack is empty or first element isn't a trie node
-  (when (and (not (trie-stack-empty-p stack))
-	     (trie--node-p (trie-stack-first stack)))
+  ;; nothing to do if stack is empty
+  (unless (trie-stack-empty-p stack)
     (let ((node (funcall (trie--stack-stack-popfun stack)
 			 (cdar (trie--stack-store stack))))
 	  (seq (caar (trie--stack-store stack))))
@@ -871,21 +873,29 @@ it is better to use one of those instead."
 (defun trie-stack-pop (trie-stack)
   "Pop the first element from TRIE-STACK.
 Returns nil if the stack is empty."
-  (let ((first (pop (trie--stack-store trie-stack))))
-    (when first
-      (trie--stack-repopulate trie-stack)
-      first)))
+  ;; if elements have been pushed onto the stack, pop those first
+  (if (trie--stack-pushed trie-stack)
+      (pop (trie--stack-pushed trie-stack))
+    ;; otherwise, pop first element from trie-stack and repopulate it
+    (let ((first (pop (trie--stack-store trie-stack))))
+      (when first
+	(trie--stack-repopulate trie-stack)
+	first))))
 
 
 (defun trie-stack-push (element trie-stack)
   "Push ELEMENT onto TRIE-STACK."
-  (push element (trie--stack-store trie-stack)))
+  (push element (trie--stack-pushed trie-stack)))
 
 
 (defun trie-stack-first (trie-stack)
   "Return the first element from TRIE-STACK, without removing it
 from the stack. Returns nil if the stack is empty."
-  (car (trie--stack-store trie-stack)))
+  ;; if elements have been pushed onto the stack, return first of those
+  (if (trie--stack-pushed trie-stack)
+      (car (trie--stack-pushed trie-stack))
+    ;; otherwise, return first element from trie-stack
+    (car (trie--stack-store trie-stack))))
 
 
 (defalias 'trie-stack-p 'trie--stack-p
@@ -894,7 +904,8 @@ from the stack. Returns nil if the stack is empty."
 
 (defun trie-stack-empty-p (trie-stack)
   "Return t if TRIE-STACK is empty, nil otherwise."
-  (null (trie--stack-store trie-stack)))
+  (and (null (trie--stack-store trie-stack))
+       (null (trie--stack-pushed trie-stack))))
 
 
 
