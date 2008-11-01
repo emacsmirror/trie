@@ -289,14 +289,13 @@ If START or END is negative, it counts from the end."
 
 (defun trie--wrap-cmpfun (cmpfun)
   ;; wrap CMPFUN for use in a subtree
-  (byte-compile
-   `(lambda (a b)
-      (setq a (trie--node-split a)
-	    b (trie--node-split b))
-      (cond ((eq a trie--terminator)
-	     (if (eq b trie--terminator) nil t))
-	    ((eq b trie--terminator) nil)
-	    (t (,cmpfun a b))))))
+  `(lambda (a b)
+     (setq a (trie--node-split a)
+	   b (trie--node-split b))
+     (cond ((eq a trie--terminator)
+	    (if (eq b trie--terminator) nil t))
+	   ((eq b trie--terminator) nil)
+	   (t (,cmpfun a b)))))
 
 
 ;;; ----------------------------------------------------------------
@@ -673,22 +672,20 @@ must *not* bind any variables with names commencing \"--\".")
 that compares individual elements of the sequence. Order is
 reversed if REVERSE is non-nil."
   (if reverse
-      (byte-compile
-       `(lambda (a b)
-	  (let (cmp)
-	    (catch 'compared
-	      (dotimes (i (min (length a) (length b)))
-		(cond ((,cmpfun (elt b i) (elt a i)) (throw 'compared t))
-		      ((,cmpfun (elt a i) (elt b i)) (throw 'compared nil))))
-	      (< (length a) (length b))))))
-    (byte-compile
-     `(lambda (a b)
-	(let (cmp)
-	  (catch 'compared
-	    (dotimes (i (min (length a) (length b)))
-	      (cond ((,cmpfun (elt a i) (elt b i)) (throw 'compared t))
-		    ((,cmpfun (elt b i) (elt a i)) (throw 'compared nil))))
-	    (< (length a) (length b))))))))
+      `(lambda (a b)
+	 (let (cmp)
+	   (catch 'compared
+	     (dotimes (i (min (length a) (length b)))
+	       (cond ((,cmpfun (elt b i) (elt a i)) (throw 'compared t))
+		     ((,cmpfun (elt a i) (elt b i)) (throw 'compared nil))))
+	     (< (length a) (length b)))))
+    `(lambda (a b)
+       (let (cmp)
+	 (catch 'compared
+	   (dotimes (i (min (length a) (length b)))
+	     (cond ((,cmpfun (elt a i) (elt b i)) (throw 'compared t))
+		   ((,cmpfun (elt b i) (elt a i)) (throw 'compared nil))))
+	   (< (length a) (length b)))))))
 
 
 
