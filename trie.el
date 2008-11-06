@@ -228,7 +228,7 @@ If START or END is negative, it counts from the end."
 		  &aux
 		  (createfun
 		   (cond
-		    ((eq type 'avl) 'avl-tree-create-bare)
+		    ((eq type 'avl) 'avl-tree-create)
 		    (t (error "trie--create: unknown trie TYPE, %s" type))))
 		  (insertfun
 		   (cond
@@ -262,6 +262,14 @@ If START or END is negative, it counts from the end."
 		   (cond
 		    ((eq type 'avl) 'avl-tree-stack-empty-p)
 		    (t (error "trie--create: unknown trie TYPE, %s" type))))
+		  (transform-for-print
+		   (cond
+		    ((eq type 'avl) 'trie--avl-transform-for-print)
+		    (t (error "trie--create: unknown trie TYPE, %s" type))))
+		  (transform-from-read
+		   (cond
+		    ((eq type 'avl) 'trie--avl-transform-from-read)
+		    (t (error "trie--create: unknown trie TYPE, %s" type))))
 		  (cmpfun (trie--wrap-cmpfun comparison-function))
 		  (root (trie--node-create-root createfun cmpfun))
 		  ))
@@ -277,6 +285,8 @@ If START or END is negative, it counts from the end."
 		  (stack-createfun 'avl-tree-stack)
 		  (stack-popfun 'avl-tree-stack-pop)
 		  (stack-emptyfun 'avl-tree-stack-empty-p)
+		  (transform-for-print 'trie--avl-transform-for-print)
+		  (transform-from-read 'trie--avl-transform-from-read)
 		  &aux
 		  (cmpfun (trie--wrap-cmpfun comparison-function))
 		  (root (trie--node-create-root createfun cmpfun))
@@ -284,7 +294,8 @@ If START or END is negative, it counts from the end."
    (:copier nil))
   root comparison-function cmpfun
   createfun insertfun deletefun lookupfun mapfun emptyfun
-  stack-createfun stack-popfun stack-emptyfun)
+  stack-createfun stack-popfun stack-emptyfun
+  transform-for-print transform-from-read print-form)
 
 
 (defun trie--wrap-cmpfun (cmpfun)
@@ -306,16 +317,19 @@ If START or END is negative, it counts from the end."
    (:type vector)
    (:constructor nil)
    (:constructor trie--node-create
-		 (split tree
-		  &aux (subtree (funcall (trie--createfun tree)
-					 (trie--cmpfun tree)))))
+		 (split trie
+		  &aux (subtree (funcall (trie--createfun trie)
+					 (trie--cmpfun trie)))))
    (:constructor trie--node-create-data
 		 (data &aux (split trie--terminator) (subtree data)))
    (:constructor trie--node-create-dummy
 		 (split &aux (subtree nil)))
    (:constructor trie--node-create-root
 		 (createfun cmpfun
-		  &aux (split nil) (subtree (funcall createfun cmpfun))))
+		  &aux
+		  (split nil)
+		  (subtree (let ((trie-depth 0))
+			     (funcall createfun cmpfun)))))
    (:copier nil))
    split subtree)
 
@@ -349,7 +363,7 @@ If START or END is negative, it counts from the end."
 	    (funcall (trie--lookupfun trie)
 		     (trie--node-subtree node)
 		     (trie--node-create-dummy (elt sequence i))
-		     nil (trie--cmpfun trie))))
+		     nil)))
     node))
 
 
@@ -359,7 +373,7 @@ If START or END is negative, it counts from the end."
   `(funcall (trie--lookupfun ,trie)
 	    (trie--node-subtree ,node)
 	    (trie--node-create-dummy trie--terminator)
-	    nil (trie--cmpfun ,trie)))
+	    nil))
 
 
 (defmacro trie--find-data (node trie)
@@ -469,6 +483,44 @@ If START or END is negative, it counts from the end."
 
 
 ;;; ----------------------------------------------------------------
+;;;              print/read transformation functions
+
+(defun trie-transform-for-print (trie)
+  "Transform TRIE to print form."
+  (when (trie--transform-for-print trie)
+    (if (trie--print-form trie)
+	(error "Trie has already been transformed to print-form")
+      (setf (trie--print-form trie) t)
+      (funcall (trie--transform-for-print trie) trie))))
+
+
+(defun trie-transform-from-read (trie)
+  "Transform TRIE from print form."
+  (when (trie--transform-from-read trie)
+    (if (not (trie--print-form trie))
+	(error "Trie is not in print-form")
+      (setf (trie--print-form trie) nil)
+      (funcall (trie--transform-from-read trie) trie))))
+
+
+(defun trie--avl-transform-for-print (trie)
+  ;; transform avl-tree based TRIE to print form.
+  (trie-mapc-internal
+   (lambda (avl seq) (setf (avl-tree--cmpfun avl) nil))
+   trie))
+
+
+(defun trie--avl-transform-from-read (trie)
+  ;; transform avl-tree based TRIE from print form."
+  (let ((--trie-avl-transform--cmpfun (trie--cmpfun trie)))
+    (trie-mapc-internal
+     (lambda (avl seq)
+       (setf (avl-tree--cmpfun avl) --trie-avl-transform--cmpfun))
+     trie)))
+
+
+
+;;; ----------------------------------------------------------------
 ;;;               Miscelaneous internal macros
 
 (defun trie--mapc (--trie--mapc--function --trie--mapc--mapfun
@@ -498,6 +550,41 @@ If START or END is negative, it counts from the end."
    ;; --TRIE--MAPC--MAPFUN target
    (trie--node-subtree --trie--mapc--root)
    --trie--mapc--reverse))
+
+
+(defun trie-mapc-internal (function trie &optional type)
+  "Apply FUNCTION to all internal associative arrays within TRIE.
+FUNCTION is passed two arguments: an associative array, and the
+sequence it corresponds to.
+
+Optional argument TYPE (one of the symbols vector, lisp or
+string) sets the type of sequence passed to function. Defaults to
+vector."
+  (trie--mapc-internal function (trie--mapfun trie) (trie--root trie)
+		       (cond ((eq type 'string) "")
+			     ((eq type 'lisp) ())
+			     (t []))))
+
+
+(defun trie--mapc-internal (--trie--mapc-internal--function
+			     --trie--mapc-internal--mapfun
+			     --trie--mapc-internal--root
+			     --trie--mapc-internal--seq)
+  (funcall
+   --trie--mapc-internal--mapfun
+   (lambda (--trie--mapc-internal--node)
+     ;; data node
+     (unless (trie--node-data-p --trie--mapc-internal--node)
+       (funcall --trie--mapc-internal--function
+		(trie--node-subtree --trie--mapc-internal--node)
+		--trie--mapc-internal--seq)
+       (trie--mapc-internal
+	--trie--mapc-internal--function
+	--trie--mapc-internal--mapfun
+	--trie--mapc-internal--node
+	(trie--seq-append (copy-sequence --trie--mapc-internal--seq)
+			  (trie--node-split --trie--mapc-internal--node)))))
+   (trie--node-subtree --trie--mapc-internal--root)))
 
 
 (defmacro trie--complete-construct-accumulator (maxnum filter)
@@ -576,8 +663,8 @@ arguments, each being an element of such a sequence, and return t
 if the first is strictly smaller than the second.
 
 The optional argument TYPE specifies the type of trie to
-create. However, the only one that is implemented is the default,
-so this argument is currently useless. (See also
+create. However, the only one that is currently implemented is
+the default, so this argument is useless. (See also
 `trie-create-custom'.)")
 
 
@@ -605,6 +692,13 @@ the following is non-nil:
   (and (COMPARISON-FUNCTION b a)
        (COMPARISON-FUNCTION b a))
 
+When CREATEFUN is called, the depth in the trie at which the
+associative array is being created can be accessed via the
+variable `trie-depth'. This can be used, for example, to create
+hybrid trie structures in which different types of associative
+array are used at different depths in the trie. (Note that, in
+this case, all the other functions described below must be able
+to correctly handle *any* of these types of associate array.)
 
 INSERTFUN, DELETEFUN, LOOKUPFUN, MAPFUN and EMPTYFUN should
 insert, delete, lookup, map over, and check-if-there-exist-any
@@ -663,8 +757,10 @@ must *not* bind any variables with names commencing \"--\".")
 
 (defun trie-empty (trie)
   "Return t if the TRIE is empty, nil otherwise."
-  (funcall (trie--emptyfun trie)
-	   (trie--node-subtree (trie--root trie))))
+  (if (trie--print-form trie)
+      (error "Attempted to operate on trie that is in print-form")
+    (funcall (trie--emptyfun trie)
+	     (trie--node-subtree (trie--root trie)))))
 
 
 (defun trie-construct-sortfun (cmpfun &optional reverse)
@@ -708,15 +804,17 @@ REVERSE is non-nil.
 
 Note: to avoid nasty dynamic scoping bugs, FUNCTION must *not*
 bind any variables with names commencing \"--\"."
-  (let ((--trie-map--function function)) ; try to avoid dynamic scoping bugs
-    (trie--mapc
-     (lambda (node seq)
-       (setf (trie--node-data node)
-	     (funcall --trie-map--function seq (trie--node-data node))))
-     (trie--mapfun trie)
-     (trie--root trie)
-     (cond ((eq type 'string) "") ((eq type 'lisp) ()) (t []))
-     reverse)))
+  (if (trie--print-form trie)
+      (error "Attempted to operate on trie that is in print-form")
+    (let ((--trie-map--function function)) ; try to avoid dynamic scoping bugs
+      (trie--mapc
+       (lambda (node seq)
+	 (setf (trie--node-data node)
+	       (funcall --trie-map--function seq (trie--node-data node))))
+       (trie--mapfun trie)
+       (trie--root trie)
+       (cond ((eq type 'string) "") ((eq type 'lisp) ()) (t []))
+       reverse))))
 
 
 (defun trie-mapc (function trie &optional type reverse)
@@ -734,14 +832,16 @@ REVERSE is non-nil.
 
 Note: to avoid nasty dynamic scoping bugs, FUNCTION must *not*
 bind any variables with names commencing \"--\"."
-  (let ((--trie-mapc--function function)) ; try to avoid dynamic scoping bugs
-    (trie--mapc
-     (lambda (node seq)
-       (funcall --trie-mapc--function seq (trie--node-data node)))
-     (trie--mapfun trie)
-     (trie--root trie)
-     (cond ((eq type 'string) "") ((eq type 'lisp) ()) (t []))
-     reverse)))
+  (if (trie--print-form trie)
+      (error "Attempted to operate on trie that is in print-form")
+    (let ((--trie-mapc--function function)) ; try to avoid dynamic scoping bugs
+      (trie--mapc
+       (lambda (node seq)
+	 (funcall --trie-mapc--function seq (trie--node-data node)))
+       (trie--mapfun trie)
+       (trie--root trie)
+       (cond ((eq type 'string) "") ((eq type 'lisp) ()) (t []))
+       reverse))))
 
 
 (defun trie-mapf (function combinator trie &optional type reverse)
@@ -763,20 +863,22 @@ order, or descending order if REVERSE is non-nil.
 Note: to avoid nasty dynamic scoping bugs, FUNCTION and
 COMBINATOR must *not* bind any variables with names
 commencing \"--\"."
-  (let ((--trie-mapf--function function) ; try to avoid dynamic scoping bugs
-	--trie-mapf--accumulate)
-    (trie--mapc
-     (lambda (node seq)
-       (setq --trie-mapf--accumulate
-	     (funcall combinator
-		      (funcall --trie-mapf--function
-			       seq (trie--node-data node))
-		      --trie-mapf--accumulate)))
-     (trie--mapfun trie)
-     (trie--root trie)
-     (cond ((eq type 'string) "") ((eq type 'lisp) ()) (t []))
-     reverse)
-    --trie-mapf--accumulate))
+  (if (trie--print-form trie)
+      (error "Attempted to operate on trie that is in print-form")
+    (let ((--trie-mapf--function function) ; try to avoid dynamic scoping bugs
+	  --trie-mapf--accumulate)
+      (trie--mapc
+       (lambda (node seq)
+	 (setq --trie-mapf--accumulate
+	       (funcall combinator
+			(funcall --trie-mapf--function
+				 seq (trie--node-data node))
+			--trie-mapf--accumulate)))
+       (trie--mapfun trie)
+       (trie--root trie)
+       (cond ((eq type 'string) "") ((eq type 'lisp) ()) (t []))
+       reverse)
+      --trie-mapf--accumulate)))
 
 
 (defun trie-mapcar (function trie &optional type reverse)
@@ -802,7 +904,9 @@ is more efficient.
 
 Note: to avoid nasty dynamic scoping bugs, FUNCTION must *not*
 bind any variables with names commencing \"--\"."
-  (nreverse (trie-mapf function 'cons trie type reverse)))
+  (if (trie--print-form trie)
+      (error "Attempted to operate on trie that is in print-form")
+    (nreverse (trie-mapf function 'cons trie type reverse))))
 
 
 
@@ -830,9 +934,11 @@ functions. As such, they can be useful in implementing efficient
 algorithms on tries. However, in cases where mapping functions
 `trie-mapc', `trie-mapcar' or `trie-mapf' would be sufficient, it
 is better to use one of those instead."
-  (let ((stack (trie--stack-create trie type reverse)))
-    (trie--stack-repopulate stack)
-    stack))
+  (if (trie--print-form trie)
+      (error "Attempted to operate on trie that is in print-form")
+    (let ((stack (trie--stack-create trie type reverse)))
+      (trie--stack-repopulate stack)
+      stack)))
 
 
 (defun trie-complete-stack (trie prefix &optional reverse)
@@ -862,9 +968,11 @@ using standard stack functions. As such, they can be useful in
 implementing efficient algorithms on tries. However, in cases
 where `trie-complete' or `trie-complete-ordered' is sufficient,
 it is better to use one of those instead."
-  (let ((stack (trie--completion-stack-create trie prefix reverse)))
-    (trie--stack-repopulate stack)
-    stack))
+  (if (trie--print-form trie)
+      (error "Attempted to operate on trie that is in print-form")
+    (let ((stack (trie--completion-stack-create trie prefix reverse)))
+      (trie--stack-repopulate stack)
+      stack)))
 
 
 (defun trie-stack-pop (trie-stack)
@@ -926,41 +1034,43 @@ Returns the new association of KEY.
 
 Note: to avoid nasty dynamic scoping bugs, UPDATEFUN must *not*
 bind any variables with names commencing \"--\"."
-  ;; rename UPDATEFUN argument to try to avoid dynamic scoping bugs
-  (let ((--trie-insert--updatefun updatefun)
-	update-old
-	trie-insert--old-node-flag
-	(node (trie--root trie))
-	(len (length key))
-	(i -1))
-    ;; Descend trie, adding nodes for non-existent elements of KEY. The update
-    ;; function passed to `trie--insertfun' ensures that existing nodes are
-    ;; left intact.
-    (while (< (incf i) len)
-      (setq trie-insert--old-node-flag nil)
+  (if (trie--print-form trie)
+      (error "Attempted to operate on trie that is in print-form")
+    ;; absurb variable names are an attempt to avoid dynamic scoping bugs
+    (let ((--trie-insert--updatefun updatefun)
+	  --trie-insert--old-node-flag
+	  (trie-depth 0)
+	  (node (trie--root trie))
+	  (len (length key))
+	  (i -1))
+      (declare (special trie-depth))
+      ;; Descend trie, adding nodes for non-existent elements of KEY. The
+      ;; update function passed to `trie--insertfun' ensures that existing
+      ;; nodes are left intact.
+      (while (< (incf i) len)
+	(setq --trie-insert--old-node-flag nil)
+	(setq node (funcall (trie--insertfun trie)
+			    (trie--node-subtree node)
+			    (let ((trie-depth (1+ trie-depth)))
+			      (trie--node-create (elt key i) trie))
+			    (lambda (a b)
+			      (setq --trie-insert--old-node-flag t) b)))
+	(incf trie-depth))
+      ;; Create or update data node.
       (setq node (funcall (trie--insertfun trie)
 			  (trie--node-subtree node)
-			  (trie--node-create (elt key i) trie)
-			  (lambda (a b)
-			    (setq trie-insert--old-node-flag t) b)
-			  (trie--cmpfun trie))))
-    ;; If we're using an existing data node, and UPDATEFUN was supplied,
-    ;; wrap it for passing to `trie--insertfun'.
-    (when (and trie-insert--old-node-flag --trie-insert--updatefun)
-      (setq update-old
-	    (lambda (new old)
-	      (setf (trie--node-data old)
-		    (funcall --trie-insert--updatefun
-			     (trie--node-data new)
-			     (trie--node-data old)))
-	      old)))
-    ;; Create or update data node.
-    (setq node (funcall (trie--insertfun trie)
-			(trie--node-subtree node)
-			(trie--node-create-data data)
-			update-old
-			(trie--cmpfun trie)))
-    (trie--node-data node)))  ; return new data
+			  (trie--node-create-data data)
+			  ;; if using existing data node, wrap UPDATEFUN if
+			  ;; any was supplied
+			  (when (and --trie-insert--old-node-flag
+				     --trie-insert--updatefun)
+			    (lambda (new old)
+			      (setf (trie--node-data old)
+				    (funcall --trie-insert--updatefun
+					     (trie--node-data new)
+					     (trie--node-data old)))
+			      old))))
+      (trie--node-data node))))  ; return new data
 
 
 
@@ -980,16 +1090,18 @@ key will then only be deleted if TEST returns non-nil.
 
 Note: to avoid nasty dynamic scoping bugs, TEST must *not* bind
 any variables with names commencing \"--\"."
-  (let (--trie-deleted--node
-	(--trie-delete--key key))
-    (declare (special --trie-deleted--node)
-	     (special --trie-delete--key))
-    (trie--do-delete (trie--root trie) key test
-		     (trie--deletefun trie)
-		     (trie--emptyfun trie)
-		     (trie--cmpfun trie))
-    (when --trie-deleted--node
-      (cons key (trie--node-data --trie-deleted--node)))))
+  (if (trie--print-form trie)
+      (error "Attempted to operate on trie that is in print-form")
+    (let (--trie-deleted--node
+	  (--trie-delete--key key))
+      (declare (special --trie-deleted--node)
+	       (special --trie-delete--key))
+      (trie--do-delete (trie--root trie) key test
+		       (trie--deletefun trie)
+		       (trie--emptyfun trie)
+		       (trie--cmpfun trie))
+      (when --trie-deleted--node
+	(cons key (trie--node-data --trie-deleted--node))))))
 
 
 (defun trie--do-delete (node --trie--do-delete--seq
@@ -1050,16 +1162,21 @@ Optional argument NILFLAG specifies a value to return instead of
 nil if KEY does not exist in TRIE. This allows a non-existent KEY
 to be distinguished from an element with a null association. (See
 also `trie-member-p', which does this for you.)"
-  ;; find node corresponding to key, then find data node, then return data
-  (let (node)
-    (or (and (setq node (trie--node-find trie key))
-	     (trie--find-data node trie))
-	nilflag)))
+  (if (trie--print-form trie)
+      (error "Attempted to operate on trie that is in print-form")
+    ;; find node corresponding to key, then find data node, then return data
+    (let (node)
+      (or (and (setq node (trie--node-find trie key))
+	       (trie--find-data node trie))
+	  nilflag))))
+
 
 (defun trie-member-p (trie key)
   "Return t if KEY exists in TRIE, nil otherwise."
-  (let ((flag '(nil)))
-    (not (eq flag (trie-member trie key flag)))))
+  (if (trie--print-form trie)
+      (error "Attempted to operate on trie that is in print-form")
+    (let ((flag '(nil)))
+      (not (eq flag (trie-member trie key flag))))))
 
 
 
@@ -1111,57 +1228,61 @@ completion with two arguments: the completion, and its associated
 data. If the filter function returns nil, the completion is not
 included in the results, and does not count towards MAXNUM."
 
-  (let (node
-	(trie--complete-accumulate
-	 (if rankfun
-	     (heap-create  ; heap order is inverse of rank order
-	      (if reverse
-		  `(lambda (a b) (,rankfun a b))
-		`(lambda (a b) (not (,rankfun a b))))
-	      (when maxnum (1+ maxnum)))
-	   (make-vector 1 nil)))
-	accumulator)
+  (if (trie--print-form trie)
+      (error "Attempted to operate on trie that is in print-form")
 
-    ;; wrap prefix in a list if necessary
-    ;; FIXME: the test for a list of prefixes, below, will fail if the PREFIX
-    ;;        sequence is a list, and the elements of PREFIX are themselves
-    ;;        lists (there might be no easy way to fully fix this...)
-    (if (or (atom prefix) (and (listp prefix) (not (sequencep (car prefix)))))
-	(setq prefix (list prefix))
-      ;; sort list of prefixes if sorting completions lexically
-      (when (null rankfun)
-	(setq prefix
-	      (sort prefix (trie-construct-sortfun
-			    (trie--comparison-function trie))))))
+    (let (node
+	  (trie--complete-accumulate
+	   (if rankfun
+	       (heap-create  ; heap order is inverse of rank order
+		(if reverse
+		    `(lambda (a b) (,rankfun a b))
+		  `(lambda (a b) (not (,rankfun a b))))
+		(when maxnum (1+ maxnum)))
+	     (make-vector 1 nil)))
+	  accumulator)
 
-    ;; construct function to accumulate completions
-    (if rankfun
-	(setq accumulator
-	      (trie--complete-construct-ranked-accumulator maxnum filter))
-      (setq accumulator (trie--complete-construct-accumulator maxnum filter)))
+      ;; wrap prefix in a list if necessary
+      ;; FIXME: the test for a list of prefixes, below, will fail if the
+      ;;        PREFIX sequence is a list, and the elements of PREFIX are
+      ;;        themselves lists (there might be no easy way to fully fix
+      ;;        this...)
+      (if (or (atom prefix) (and (listp prefix) (not (sequencep (car prefix)))))
+	  (setq prefix (list prefix))
+	;; sort list of prefixes if sorting completions lexically
+	(when (null rankfun)
+	  (setq prefix
+		(sort prefix (trie-construct-sortfun
+			      (trie--comparison-function trie))))))
 
-    ;; accumulate completions
-    (catch 'trie-complete--done
-      (mapc (lambda (pfx)
-	      (setq node (trie--node-find trie pfx))
-	      (when node
-		(trie--mapc accumulator (trie--mapfun trie) node pfx
-			    (if maxnum reverse (not reverse)))))
-	    prefix))
+      ;; construct function to accumulate completions
+      (if rankfun
+	  (setq accumulator
+		(trie--complete-construct-ranked-accumulator maxnum filter))
+	(setq accumulator (trie--complete-construct-accumulator maxnum filter)))
 
-    ;; return list of completions
-    (cond
-     ;; extract completions from heap for ranked query
-     (rankfun
-      (let (completions)
-	(while (not (heap-empty trie--complete-accumulate))
-	  (push (heap-delete-root trie--complete-accumulate) completions))
-	completions))
-     ;; reverse result list if MAXNUM supplied
-     (maxnum (nreverse (aref trie--complete-accumulate 0)))
-     ;; otherwise, just return list
-     (t (aref trie--complete-accumulate 0)))
-    ))
+      ;; accumulate completions
+      (catch 'trie-complete--done
+	(mapc (lambda (pfx)
+		(setq node (trie--node-find trie pfx))
+		(when node
+		  (trie--mapc accumulator (trie--mapfun trie) node pfx
+			      (if maxnum reverse (not reverse)))))
+	      prefix))
+
+      ;; return list of completions
+      (cond
+       ;; extract completions from heap for ranked query
+       (rankfun
+	(let (completions)
+	  (while (not (heap-empty trie--complete-accumulate))
+	    (push (heap-delete-root trie--complete-accumulate) completions))
+	  completions))
+       ;; reverse result list if MAXNUM supplied
+       (maxnum (nreverse (aref trie--complete-accumulate 0)))
+       ;; otherwise, just return list
+       (t (aref trie--complete-accumulate 0)))
+      )))
 
 
 
