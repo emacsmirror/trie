@@ -228,7 +228,8 @@ If START or END is negative, it counts from the end."
 		  &aux
 		  (createfun
 		   (cond
-		    ((eq type 'avl) 'avl-tree-create)
+		    ((eq type 'avl)
+		     (lambda (cmpfun seq) (avl-tree-create cmpfun)))
 		    (t (error "trie--create: unknown trie TYPE, %s" type))))
 		  (insertfun
 		   (cond
