@@ -317,9 +317,9 @@ If START or END is negative, it counts from the end."
    (:type vector)
    (:constructor nil)
    (:constructor trie--node-create
-		 (split trie
+		 (split seq trie
 		  &aux (subtree (funcall (trie--createfun trie)
-					 (trie--cmpfun trie)))))
+					 (trie--cmpfun trie) seq))))
    (:constructor trie--node-create-data
 		 (data &aux (split trie--terminator) (subtree data)))
    (:constructor trie--node-create-dummy
@@ -328,8 +328,7 @@ If START or END is negative, it counts from the end."
 		 (createfun cmpfun
 		  &aux
 		  (split nil)
-		  (subtree (let ((trie-depth 0))
-			     (funcall createfun cmpfun)))))
+		  (subtree (funcall createfun cmpfun []))))
    (:copier nil))
    split subtree)
 
@@ -683,7 +682,7 @@ STACK-EMPTYFUN, determine the type of trie that is created.
 
 CREATEFUN is called as follows:
 
-  (CREATEFUN COMPARISON-FUNCTION)
+  (CREATEFUN COMPARISON-FUNCTION SEQ)
 
 and should return a data structure (\"ARRAY\") that can be used
 as an associative array, where two elements A and B are equal if
@@ -692,32 +691,46 @@ the following is non-nil:
   (and (COMPARISON-FUNCTION b a)
        (COMPARISON-FUNCTION b a))
 
-When CREATEFUN is called, the depth in the trie at which the
-associative array is being created can be accessed via the
-variable `trie-depth'. This can be used, for example, to create
-hybrid trie structures in which different types of associative
-array are used at different depths in the trie. (Note that, in
-this case, all the other functions described below must be able
-to correctly handle *any* of these types of associate array.)
+The SEQ argument is a vector containing the sequence that will
+correspond to the newly created array in the trie. For most types
+of trie, this value is ignored. It is passed to CREATEFUN only in
+order to allow the creation of \"hybrid\" trie structures, in
+which different types of associative array are used in different
+parts of the trie. For example, the type of associative array
+could be chosen based on the depth in the trie, given by \(length
+SEQ\). (Note that all the other functions described below must be
+able to correctly handle *any* of the types of associate array
+that might be created by CREATEFUN.)
 
 INSERTFUN, DELETEFUN, LOOKUPFUN, MAPFUN and EMPTYFUN should
 insert, delete, lookup, map over, and check-if-there-exist-any
-elements in the associative array. They are called as follows:
+elements in an associative array. They are called as follows:
 
   (INSERTFUN array element &optional updatefun)
-  (DELETEFUN array element)
+  (DELETEFUN array element &optional predicate nilflag)
   (LOOKUPFUN array element &optional nilflag)
   (MAPFUN function array &optional reverse)
   (EMPTYFUN array)
 
-INSERTFUN should return the new element, which will be ELEMENT
-itself unless UPDATEFUN is specified. In the latter case, it
-should pass two arguments to UPDATEFUN, ELEMENT and the matching
-element in the associate array, and replace that element with the
-return value.
+INSERTFUN should insert ELEMENT into ARRAY and return the new
+element, which will be ELEMENT itself unless UPDATEFUN is
+specified. In that case, if and only if an element matching
+ELEMENT already exists in the associative array, INSERTFUN should
+instead pass ELEMENT and the matching element as arguments to
+UPDATEFUN, replace the matching element with the return value,
+and return that return value.
+
+DELETEFUN should delete the element in the associative array that
+matches ELEMENT, and return the deleted element. However, if
+PREDICATE is specified and a matching element exists in ARRAY,
+DELETEFUN should first pass the matching element as an argument
+to PREDICATE before deleting, and should only delete the element
+if PREDICATE returns non-nil. DELETEFUN should return NILFLAG if
+no element was deleted (either becuase no matching element was
+found, or because TESTFUN returned nil).
 
 LOOKUPFUN should return the element from the associative array
-that is equal to ELEMENT, or NILFLAG if no match exists.
+that matches ELEMENT, or NILFLAG if no matching element exists.
 
 MAPFUN should map FUNCTION over all elements in the order defined by
 COMPARISON-FUNCTION, or in reverse order if REVERSE is non-nil.
@@ -736,14 +749,15 @@ successive calls to
   (STACK-POPFUN stack)
 
 should return elements from the associative array in the order
-defined by COMPARISON-FUNCTION.
+defined by COMPARISON-FUNCTION, and
 
   (STACK-EMPTYFUN stack)
 
 should return non-nil if the stack is empty, nil otherwise.
 
-Note: to avoid nasty dynamic scoping bugs, the supplied functions
-must *not* bind any variables with names commencing \"--\".")
+
+Warning: to avoid nasty dynamic scoping bugs, the supplied
+functions must *never* bind any variables with names commencing \"--\".")
 
 
 
@@ -1036,14 +1050,12 @@ Note: to avoid nasty dynamic scoping bugs, UPDATEFUN must *not*
 bind any variables with names commencing \"--\"."
   (if (trie--print-form trie)
       (error "Attempted to operate on trie that is in print-form")
-    ;; absurb variable names are an attempt to avoid dynamic scoping bugs
+    ;; absurd variable names are an attempt to avoid dynamic scoping bugs
     (let ((--trie-insert--updatefun updatefun)
 	  --trie-insert--old-node-flag
-	  (trie-depth 0)
 	  (node (trie--root trie))
 	  (len (length key))
 	  (i -1))
-      (declare (special trie-depth))
       ;; Descend trie, adding nodes for non-existent elements of KEY. The
       ;; update function passed to `trie--insertfun' ensures that existing
       ;; nodes are left intact.
@@ -1051,11 +1063,9 @@ bind any variables with names commencing \"--\"."
 	(setq --trie-insert--old-node-flag nil)
 	(setq node (funcall (trie--insertfun trie)
 			    (trie--node-subtree node)
-			    (let ((trie-depth (1+ trie-depth)))
-			      (trie--node-create (elt key i) trie))
+			    (trie--node-create (elt key i) key trie)
 			    (lambda (a b)
-			      (setq --trie-insert--old-node-flag t) b)))
-	(incf trie-depth))
+			      (setq --trie-insert--old-node-flag t) b))))
       ;; Create or update data node.
       (setq node (funcall (trie--insertfun trie)
 			  (trie--node-subtree node)
