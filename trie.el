@@ -677,9 +677,10 @@ associated data. COMPARISON-FUNCTION should accept two arguments,
 each being an element of such a sequence, and return t if the
 first is strictly smaller than the second.
 
-The remaining arguments: CREATEFUN, INSERTFUN, DELETEFUN,
-LOOKUPFUN, MAPFUN, EMPTYFUN, STACK-CREATEFUN, STACK-POPFUN and
-STACK-EMPTYFUN, determine the type of trie that is created.
+The remaining keyword arguments: :CREATEFUN, :INSERTFUN, :DELETEFUN,
+:LOOKUPFUN, :MAPFUN, :EMPTYFUN, :STACK-CREATEFUN, :STACK-POPFUN,
+:STACK-EMPTYFUN, :TRANSFORM-FOR-PRINT and :TRANSFORM-FROM-READ
+determine the type of trie that is created.
 
 CREATEFUN is called as follows:
 
@@ -756,6 +757,19 @@ defined by COMPARISON-FUNCTION, and
 
 should return non-nil if the stack is empty, nil otherwise.
 
+The stack functions are optional, in that all trie operations
+other than the stack-related ones will work correctly. However,
+any code that makes use of trie-stacks will complain if supplied
+with this type of trie.
+
+
+The :TRANSFORM-FOR-PRINT and :TRANSFORM-FROM-READ arguments are
+optional. If supplied, they can be used to transform the trie
+into a format suitable for passing to Elisp's `print'
+functions (typically used to persistently store the trie by
+writing it to file), and transform from that format back to the
+original usable form.
+
 
 Warning: to avoid nasty dynamic scoping bugs, the supplied
 functions must *never* bind any variables with names commencing \"--\".")
@@ -773,7 +787,7 @@ functions must *never* bind any variables with names commencing \"--\".")
 (defun trie-empty (trie)
   "Return t if the TRIE is empty, nil otherwise."
   (if (trie--print-form trie)
-      (error "Attempted to operate on trie that is in print-form")
+      (error "Attempt to operate on trie that is in print-form")
     (funcall (trie--emptyfun trie)
 	     (trie--node-subtree (trie--root trie)))))
 
@@ -820,7 +834,7 @@ REVERSE is non-nil.
 Note: to avoid nasty dynamic scoping bugs, FUNCTION must *not*
 bind any variables with names commencing \"--\"."
   (if (trie--print-form trie)
-      (error "Attempted to operate on trie that is in print-form")
+      (error "Attempt to operate on trie that is in print-form")
     (let ((--trie-map--function function)) ; try to avoid dynamic scoping bugs
       (trie--mapc
        (lambda (node seq)
@@ -848,7 +862,7 @@ REVERSE is non-nil.
 Note: to avoid nasty dynamic scoping bugs, FUNCTION must *not*
 bind any variables with names commencing \"--\"."
   (if (trie--print-form trie)
-      (error "Attempted to operate on trie that is in print-form")
+      (error "Attempt to operate on trie that is in print-form")
     (let ((--trie-mapc--function function)) ; try to avoid dynamic scoping bugs
       (trie--mapc
        (lambda (node seq)
@@ -879,7 +893,7 @@ Note: to avoid nasty dynamic scoping bugs, FUNCTION and
 COMBINATOR must *not* bind any variables with names
 commencing \"--\"."
   (if (trie--print-form trie)
-      (error "Attempted to operate on trie that is in print-form")
+      (error "Attempt to operate on trie that is in print-form")
     (let ((--trie-mapf--function function) ; try to avoid dynamic scoping bugs
 	  --trie-mapf--accumulate)
       (trie--mapc
@@ -920,7 +934,7 @@ is more efficient.
 Note: to avoid nasty dynamic scoping bugs, FUNCTION must *not*
 bind any variables with names commencing \"--\"."
   (if (trie--print-form trie)
-      (error "Attempted to operate on trie that is in print-form")
+      (error "Attempt to operate on trie that is in print-form")
     (nreverse (trie-mapf function 'cons trie type reverse))))
 
 
@@ -949,11 +963,15 @@ functions. As such, they can be useful in implementing efficient
 algorithms on tries. However, in cases where mapping functions
 `trie-mapc', `trie-mapcar' or `trie-mapf' would be sufficient, it
 is better to use one of those instead."
-  (if (trie--print-form trie)
-      (error "Attempted to operate on trie that is in print-form")
+  (cond
+   ((trie--print-form trie)
+    (error "Attempt to operate on trie that is in print-form"))
+   ((not (functionp (trie--stack-createfun trie)))
+    (error "Trie type does not support stack operations"))
+   (t
     (let ((stack (trie--stack-create trie type reverse)))
       (trie--stack-repopulate stack)
-      stack)))
+      stack))))
 
 
 (defun trie-complete-stack (trie prefix &optional reverse)
@@ -983,11 +1001,15 @@ using standard stack functions. As such, they can be useful in
 implementing efficient algorithms on tries. However, in cases
 where `trie-complete' or `trie-complete-ordered' is sufficient,
 it is better to use one of those instead."
-  (if (trie--print-form trie)
-      (error "Attempted to operate on trie that is in print-form")
+  (cond
+   ((trie--print-form trie)
+    (error "Attempt to operate on trie that is in print-form"))
+   ((not (functionp (trie--stack-createfun trie)))
+    (error "Trie type does not support stack operations"))
+   (t
     (let ((stack (trie--completion-stack-create trie prefix reverse)))
       (trie--stack-repopulate stack)
-      stack)))
+      stack))))
 
 
 (defun trie-stack-pop (trie-stack)
@@ -1050,7 +1072,7 @@ Returns the new association of KEY.
 Note: to avoid nasty dynamic scoping bugs, UPDATEFUN must *not*
 bind any variables with names commencing \"--\"."
   (if (trie--print-form trie)
-      (error "Attempted to operate on trie that is in print-form")
+      (error "Attempt to operate on trie that is in print-form")
     ;; absurd variable names are an attempt to avoid dynamic scoping bugs
     (let ((--trie-insert--updatefun updatefun)
 	  --trie-insert--old-node-flag
@@ -1102,7 +1124,7 @@ key will then only be deleted if TEST returns non-nil.
 Note: to avoid nasty dynamic scoping bugs, TEST must *not* bind
 any variables with names commencing \"--\"."
   (if (trie--print-form trie)
-      (error "Attempted to operate on trie that is in print-form")
+      (error "Attempt to operate on trie that is in print-form")
     (let (--trie-deleted--node
 	  (--trie-delete--key key))
       (declare (special --trie-deleted--node)
@@ -1165,7 +1187,7 @@ any variables with names commencing \"--\"."
 ;; ----------------------------------------------------------------
 ;;                       Retrieving data
 
-(defun trie-member (trie key &optional nilflag)
+(defun trie-lookup (trie key &optional nilflag)
   "Return the data associated with KEY in the TRIE,
 or nil if KEY does not exist in TRIE.
 
@@ -1174,18 +1196,20 @@ nil if KEY does not exist in TRIE. This allows a non-existent KEY
 to be distinguished from an element with a null association. (See
 also `trie-member-p', which does this for you.)"
   (if (trie--print-form trie)
-      (error "Attempted to operate on trie that is in print-form")
+      (error "Attempt to operate on trie that is in print-form")
     ;; find node corresponding to key, then find data node, then return data
     (let (node)
       (or (and (setq node (trie--node-find trie key))
 	       (trie--find-data node trie))
 	  nilflag))))
 
+(defalias 'trie-member 'trie-lookup)
+
 
 (defun trie-member-p (trie key)
   "Return t if KEY exists in TRIE, nil otherwise."
   (if (trie--print-form trie)
-      (error "Attempted to operate on trie that is in print-form")
+      (error "Attempt to operate on trie that is in print-form")
     (let ((flag '(nil)))
       (not (eq flag (trie-member trie key flag))))))
 
@@ -1240,7 +1264,7 @@ data. If the filter function returns nil, the completion is not
 included in the results, and does not count towards MAXNUM."
 
   (if (trie--print-form trie)
-      (error "Attempted to operate on trie that is in print-form")
+      (error "Attempt to operate on trie that is in print-form")
 
     (let (node
 	  (trie--complete-accumulate
