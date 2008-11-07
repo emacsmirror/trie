@@ -170,6 +170,24 @@
 
 
 ;;; ================================================================
+;;;                Setup pre-defined trie types
+
+;; --- avl-tree ---
+(put 'avl :trie-createfun (lambda (cmpfun seq) (avl-tree-create cmpfun)))
+(put 'avl :trie-insertfun 'avl-tree-enter)
+(put 'avl :trie-deletefun 'avl-tree-delete)
+(put 'avl :trie-lookupfun 'avl-tree-member)
+(put 'avl :trie-mapfun 'avl-tree-mapc)
+(put 'avl :trie-emptyfun 'avl-tree-empty)
+(put 'avl :trie-stack-createfun 'avl-tree-stack)
+(put 'avl :trie-stack-popfun 'avl-tree-stack-pop)
+(put 'avl :trie-stack-emptyfun 'avl-tree-stack-empty-p)
+(put 'avl :trie-transform-for-print 'trie--avl-transform-for-print)
+(put 'avl :trie-transform-from-read 'trie--avl-transform-from-read)
+
+
+
+;;; ================================================================
 ;;;                Replacements for CL functions
 
 ;; copied from cl-extra.el
@@ -227,50 +245,38 @@ If START or END is negative, it counts from the end."
 		 (comparison-function &optional (type 'avl)
 		  &aux
 		  (createfun
-		   (cond
-		    ((eq type 'avl)
-		     (lambda (cmpfun seq) (avl-tree-create cmpfun)))
-		    (t (error "trie--create: unknown trie TYPE, %s" type))))
+		   (or (get type :trie-createfun)
+		       (error "trie--create: unknown trie TYPE, %s" type)))
 		  (insertfun
-		   (cond
-		    ((eq type 'avl) 'avl-tree-enter)
-		    (t (error "trie--create: unknown trie TYPE, %s" type))))
+		   (or (get type :trie-insertfun)
+		       (error "trie--create: unknown trie TYPE, %s" type)))
 		  (deletefun
-		   (cond
-		    ((eq type 'avl) 'avl-tree-delete)
-		    (t (error "trie--create: unknown trie TYPE, %s" type))))
+		   (or (get type :trie-deletefun)
+		       (error "trie--create: unknown trie TYPE, %s" type)))
 		  (lookupfun
-		   (cond
-		    ((eq type 'avl) 'avl-tree-member)
-		    (t (error "trie--create: unknown trie TYPE, %s" type))))
+		   (or (get type :trie-lookupfun)
+		       (error "trie--create: unknown trie TYPE, %s" type)))
 		  (mapfun
-		   (cond
-		    ((eq type 'avl) 'avl-tree-mapc)
-		    (t (error "trie--create: unknown trie TYPE, %s" type))))
+		   (or (get type :trie-mapfun)
+		       (error "trie--create: unknown trie TYPE, %s" type)))
 		  (emptyfun
-		   (cond
-		    ((eq type 'avl) 'avl-tree-empty)
-		    (t (error "trie--create: unknown trie TYPE, %s" type))))
+		   (or (get type :trie-emptyfun)
+		       (error "trie--create: unknown trie TYPE, %s" type)))
 		  (stack-createfun
-		   (cond
-		    ((eq type 'avl) 'avl-tree-stack)
-		    (t (error "trie--create: unknown trie TYPE, %s" type))))
+		   (or (get type :trie-stack-createfun)
+		       (error "trie--create: unknown trie TYPE, %s" type)))
 		  (stack-popfun
-		   (cond
-		    ((eq type 'avl) 'avl-tree-stack-pop)
-		    (t (error "trie--create: unknown trie TYPE, %s" type))))
+		   (or (get type :trie-stack-popfun)
+		       (error "trie--create: unknown trie TYPE, %s" type)))
 		  (stack-emptyfun
-		   (cond
-		    ((eq type 'avl) 'avl-tree-stack-empty-p)
-		    (t (error "trie--create: unknown trie TYPE, %s" type))))
+		   (or (get type :trie-stack-emptyfun)
+		       (error "trie--create: unknown trie TYPE, %s" type)))
 		  (transform-for-print
-		   (cond
-		    ((eq type 'avl) 'trie--avl-transform-for-print)
-		    (t (error "trie--create: unknown trie TYPE, %s" type))))
+		   (or (get type :trie-transform-for-print)
+		       (error "trie--create: unknown trie TYPE, %s" type)))
 		  (transform-from-read
-		   (cond
-		    ((eq type 'avl) 'trie--avl-transform-from-read)
-		    (t (error "trie--create: unknown trie TYPE, %s" type))))
+		   (or (get type :trie-transform-from-read)
+		       (error "trie--create: unknown trie TYPE, %s" type)))
 		  (cmpfun (trie--wrap-cmpfun comparison-function))
 		  (root (trie--node-create-root createfun cmpfun))
 		  ))
