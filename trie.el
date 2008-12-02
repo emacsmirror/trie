@@ -1171,7 +1171,7 @@ any variables with names commencing \"--\"."
 		       (lambda (n)
 			 (funcall --trie--do-delete--test
 				  --trie-delete--key (trie--node-data n))))
-		     nil --trie--do-delete--cmpfun))
+		     nil))
     ;; otherwise, delete on down (return value of --TRIE--DO-DELETE--DELETEFUN
     ;; is the deleted data, which is always non-nil for a trie)
     (funcall --trie--do-delete--deletefun
@@ -1186,7 +1186,7 @@ any variables with names commencing \"--\"."
 		     --trie--do-delete--cmpfun)
 		    (funcall --trie--do-delete--emptyfun
 			     (trie--node-subtree n))))
-	     nil --trie--do-delete--cmpfun)))
+	     nil)))
 
 
 
