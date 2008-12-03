@@ -526,136 +526,6 @@ If START or END is negative, it counts from the end."
 
 
 
-;;; ----------------------------------------------------------------
-;;;               Miscelaneous internal macros
-
-(defun trie--mapc (--trie--mapc--function --trie--mapc--mapfun
-		   --trie--mapc--root --trie--mapc--seq
-		   &optional --trie--mapc--reverse)
-  ;; Apply TRIE--MAPC--FUNCTION to all elements in a trie beneath
-  ;; TRIE--MAPC--ROOT, which should correspond to the sequence
-  ;; TRIE--MAPC--SEQ. TRIE--MAPC--FUNCTION is passed two arguments: the trie
-  ;; node itself and the sequence it corresponds to. It is applied in
-  ;; ascending order, or descending order if TRIE--MAPC--REVERSE is non-nil.
-
-  ;; The absurd argument names are to lessen the likelihood of dynamical
-  ;; scoping bugs caused by a supplied function binding a variable with the
-  ;; same name as one of the arguments.
-  (funcall
-   --trie--mapc--mapfun
-   (lambda (--trie--mapc--node)
-     ;; data node: apply function
-     (if (trie--node-data-p --trie--mapc--node)
-	 (funcall --trie--mapc--function --trie--mapc--node --trie--mapc--seq)
-       ;; internal node: append split value to seq and keep descending
-       (trie--mapc --trie--mapc--function --trie--mapc--mapfun
-		   --trie--mapc--node
-		   (trie--seq-append (copy-sequence --trie--mapc--seq)
-				     (trie--node-split --trie--mapc--node))
-		   --trie--mapc--reverse)))
-   ;; --TRIE--MAPC--MAPFUN target
-   (trie--node-subtree --trie--mapc--root)
-   --trie--mapc--reverse))
-
-
-(defun trie-mapc-internal (function trie &optional type)
-  "Apply FUNCTION to all internal associative arrays within TRIE.
-FUNCTION is passed two arguments: an associative array, and the
-sequence it corresponds to.
-
-Optional argument TYPE (one of the symbols vector, lisp or
-string) sets the type of sequence passed to function. Defaults to
-vector."
-  (trie--mapc-internal function (trie--mapfun trie) (trie--root trie)
-		       (cond ((eq type 'string) "")
-			     ((eq type 'lisp) ())
-			     (t []))))
-
-
-(defun trie--mapc-internal (--trie--mapc-internal--function
-			     --trie--mapc-internal--mapfun
-			     --trie--mapc-internal--root
-			     --trie--mapc-internal--seq)
-  (funcall
-   --trie--mapc-internal--mapfun
-   (lambda (--trie--mapc-internal--node)
-     ;; data node
-     (unless (trie--node-data-p --trie--mapc-internal--node)
-       (funcall --trie--mapc-internal--function
-		(trie--node-subtree --trie--mapc-internal--node)
-		--trie--mapc-internal--seq)
-       (trie--mapc-internal
-	--trie--mapc-internal--function
-	--trie--mapc-internal--mapfun
-	--trie--mapc-internal--node
-	(trie--seq-append (copy-sequence --trie--mapc-internal--seq)
-			  (trie--node-split --trie--mapc-internal--node)))))
-   (trie--node-subtree --trie--mapc-internal--root)))
-
-
-(defmacro trie--complete-construct-accumulator (maxnum filter)
-  ;; Does what it says on the tin! | sed -e 's/on/in/' -e 's/tin/macro name/'
-  `(cond
-    ((and ,filter ,maxnum)
-     (lambda (node seq)
-       (let ((data (trie--node-data node)))
-	 (when (funcall ,filter seq data)
-	   (aset trie--complete-accumulate 0
-		 (cons (cons seq data)
-		       (aref trie--complete-accumulate 0)))
-	   (and (>= (length (aref trie--complete-accumulate 0)) ,maxnum)
-		(throw 'trie-complete--done nil))))))
-    ((and (not ,filter) ,maxnum)
-     (lambda (node seq)
-       (let ((data (trie--node-data node)))
-	 (aset trie--complete-accumulate 0
-	       (cons (cons seq data)
-		     (aref trie--complete-accumulate 0)))
-	 (and (>= (length (aref trie--complete-accumulate 0)) ,maxnum)
-	      (throw 'trie-complete--done nil)))))
-    ((and ,filter (not ,maxnum))
-     (lambda (node seq)
-       (let ((data (trie--node-data node)))
-	 (when (funcall ,filter seq data)
-	   (aset trie--complete-accumulate 0
-		 (cons (cons seq data)
-		       (aref trie--complete-accumulate 0)))))))
-    ((and (not ,filter) (not ,maxnum))
-     (lambda (node seq)
-       (let ((data (trie--node-data node)))
-	 (aset trie--complete-accumulate 0
-	       (cons (cons seq data)
-		     (aref trie--complete-accumulate 0))))))))
-
-
-(defmacro trie--complete-construct-ranked-accumulator (maxnum filter)
-  ;; Does what it says on the tin! | sed -e 's/on/in/' -e 's/tin/macro name/'
-  `(cond
-    ((and ,filter ,maxnum)
-     (lambda (node seq)
-       (let ((data (trie--node-data node)))
-	 (when (funcall ,filter seq data)
-	   (heap-add trie--complete-accumulate (cons seq data))
-	   (and (> (heap-size trie--complete-accumulate) ,maxnum)
-		(heap-delete-root trie--complete-accumulate))))))
-    ((and ,filter (not ,maxnum))
-     (lambda (node seq)
-       (let ((data (trie--node-data node)))
-	 (when (funcall ,filter seq data)
-	   (heap-add trie--complete-accumulate (cons seq data))))))
-    ((and (not ,filter) ,maxnum)
-     (lambda (node seq)
-       (let ((data (trie--node-data node)))
-	 (heap-add trie--complete-accumulate (cons seq data))
-	 (and (> (heap-size trie--complete-accumulate) ,maxnum)
-	      (heap-delete-root trie--complete-accumulate)))))
-    ((and (not ,filter) (not ,maxnum))
-     (lambda (node seq)
-       (let ((data (trie--node-data node)))
-	 (heap-add trie--complete-accumulate (cons seq data)))))))
-
-
-
 
 ;;; ================================================================
 ;;;        The public functions which operate on tries.
@@ -820,8 +690,236 @@ reversed if REVERSE is non-nil."
 
 
 
+;; ----------------------------------------------------------------
+;;                        Inserting data
+
+(defun trie-insert (trie key &optional data updatefun)
+  "Associate DATA with KEY in TRIE.
+
+If KEY already exists in TRIE, then DATA replaces the existing
+association, unless UPDATEFUN is supplied. Note that if DATA is
+*not* supplied, this means that the existing association of KEY
+will be replaced by nil.
+
+If UPDATEFUN is supplied and KEY already exists in TRIE,
+UPDATEFUN is called with two arguments: DATA and the existing
+association of KEY. Its return value becomes the new association
+for KEY.
+
+Returns the new association of KEY.
+
+Note: to avoid nasty dynamic scoping bugs, UPDATEFUN must *not*
+bind any variables with names commencing \"--\"."
+  (if (trie--print-form trie)
+      (error "Attempt to operate on trie that is in print-form")
+    ;; absurd variable names are an attempt to avoid dynamic scoping bugs
+    (let ((--trie-insert--updatefun updatefun)
+	  --trie-insert--old-node-flag
+	  (node (trie--root trie))
+	  (len (length key))
+	  (i -1))
+      ;; Descend trie, adding nodes for non-existent elements of KEY. The
+      ;; update function passed to `trie--insertfun' ensures that existing
+      ;; nodes are left intact.
+      (while (< (incf i) len)
+	(setq --trie-insert--old-node-flag nil)
+	(setq node (funcall (trie--insertfun trie)
+			    (trie--node-subtree node)
+			    (trie--node-create (elt key i) key trie)
+			    (lambda (a b)
+			      (setq --trie-insert--old-node-flag t) b))))
+      ;; Create or update data node.
+      (setq node (funcall (trie--insertfun trie)
+			  (trie--node-subtree node)
+			  (trie--node-create-data data)
+			  ;; if using existing data node, wrap UPDATEFUN if
+			  ;; any was supplied
+			  (when (and --trie-insert--old-node-flag
+				     --trie-insert--updatefun)
+			    (lambda (new old)
+			      (setf (trie--node-data old)
+				    (funcall --trie-insert--updatefun
+					     (trie--node-data new)
+					     (trie--node-data old)))
+			      old))))
+      (trie--node-data node))))  ; return new data
+
+
+
+;; ----------------------------------------------------------------
+;;                        Deleting data
+
+(defun trie-delete (trie key &optional test)
+  "Delete KEY and its associated data from TRIE.
+
+If KEY was deleted, a cons cell containing KEY and its
+association is returned. Returns nil if KEY does not exist in
+TRIE.
+
+If TEST is supplied, it should be a function that accepts two
+arguments: the key being deleted, and its associated data. The
+key will then only be deleted if TEST returns non-nil.
+
+Note: to avoid nasty dynamic scoping bugs, TEST must *not* bind
+any variables with names commencing \"--\"."
+  (if (trie--print-form trie)
+      (error "Attempt to operate on trie that is in print-form")
+    (let (--trie-deleted--node
+	  (--trie-delete--key key))
+      (declare (special --trie-deleted--node)
+	       (special --trie-delete--key))
+      (trie--do-delete (trie--root trie) key test
+		       (trie--deletefun trie)
+		       (trie--emptyfun trie)
+		       (trie--cmpfun trie))
+      (when --trie-deleted--node
+	(cons key (trie--node-data --trie-deleted--node))))))
+
+
+(defun trie--do-delete (node --trie--do-delete--seq
+			     --trie--do-delete--test
+			     --trie--do-delete--deletefun
+			     --trie--do-delete--emptyfun
+			     --trie--do-delete--cmpfun)
+  ;; Delete --TRIE--DO-DELETE--SEQ starting from trie node NODE, and return
+  ;; non-nil if we deleted a node. If --TRIE--DO-DELETE--TEST is supplied, it
+  ;; is called with two arguments, the key being deleted and the associated
+  ;; data, and the deletion is only carried out if it returns non-nil.
+
+  ;; The absurd argument names are to lessen the likelihood of dynamical
+  ;; scoping bugs caused by a supplied function binding a variable with the
+  ;; same name as one of the arguments, which would cause a nasty bug when the
+  ;; lambda's (below) are called.
+  (declare (special --trie-deleted--node)
+	   (special --trie-delete--key))
+  ;; if --TRIE--DO-DELETE--SEQ is empty, try to delete data node and return
+  ;; non-nil if we did (return value of --TRIE--DO-DELETE--DELETEFUN is the
+  ;; deleted data, which is always non-nil for a trie)
+  (if (= (length --trie--do-delete--seq) 0)
+      (setq --trie-deleted--node
+	    (funcall --trie--do-delete--deletefun
+		     (trie--node-subtree node)
+		     (trie--node-create-dummy trie--terminator)
+		     (when --trie--do-delete--test
+		       (lambda (n)
+			 (funcall --trie--do-delete--test
+				  --trie-delete--key (trie--node-data n))))
+		     nil))
+    ;; otherwise, delete on down (return value of --TRIE--DO-DELETE--DELETEFUN
+    ;; is the deleted data, which is always non-nil for a trie)
+    (funcall --trie--do-delete--deletefun
+	     (trie--node-subtree node)
+	     (trie--node-create-dummy (elt --trie--do-delete--seq 0))
+	     (lambda (n)
+	       (and (trie--do-delete
+		     n (trie--subseq --trie--do-delete--seq 1)
+		     --trie--do-delete--test
+		     --trie--do-delete--deletefun
+		     --trie--do-delete--emptyfun
+		     --trie--do-delete--cmpfun)
+		    (funcall --trie--do-delete--emptyfun
+			     (trie--node-subtree n))))
+	     nil)))
+
+
+
+;; ----------------------------------------------------------------
+;;                       Retrieving data
+
+(defun trie-lookup (trie key &optional nilflag)
+  "Return the data associated with KEY in the TRIE,
+or nil if KEY does not exist in TRIE.
+
+Optional argument NILFLAG specifies a value to return instead of
+nil if KEY does not exist in TRIE. This allows a non-existent KEY
+to be distinguished from an element with a null association. (See
+also `trie-member-p', which does this for you.)"
+  (if (trie--print-form trie)
+      (error "Attempt to operate on trie that is in print-form")
+    ;; find node corresponding to key, then find data node, then return data
+    (let (node)
+      (or (and (setq node (trie--node-find trie key))
+	       (trie--find-data node trie))
+	  nilflag))))
+
+(defalias 'trie-member 'trie-lookup)
+
+
+(defun trie-member-p (trie key)
+  "Return t if KEY exists in TRIE, nil otherwise."
+  (if (trie--print-form trie)
+      (error "Attempt to operate on trie that is in print-form")
+    (let ((flag '(nil)))
+      (not (eq flag (trie-member trie key flag))))))
+
+
+
 ;;; ----------------------------------------------------------------
 ;;;                      Mapping over tries
+
+(defun trie--mapc (--trie--mapc--function --trie--mapc--mapfun
+		   --trie--mapc--root --trie--mapc--seq
+		   &optional --trie--mapc--reverse)
+  ;; Apply TRIE--MAPC--FUNCTION to all elements in a trie beneath
+  ;; TRIE--MAPC--ROOT, which should correspond to the sequence
+  ;; TRIE--MAPC--SEQ. TRIE--MAPC--FUNCTION is passed two arguments: the trie
+  ;; node itself and the sequence it corresponds to. It is applied in
+  ;; ascending order, or descending order if TRIE--MAPC--REVERSE is non-nil.
+
+  ;; The absurd argument names are to lessen the likelihood of dynamical
+  ;; scoping bugs caused by a supplied function binding a variable with the
+  ;; same name as one of the arguments.
+  (funcall
+   --trie--mapc--mapfun
+   (lambda (--trie--mapc--node)
+     ;; data node: apply function
+     (if (trie--node-data-p --trie--mapc--node)
+	 (funcall --trie--mapc--function --trie--mapc--node --trie--mapc--seq)
+       ;; internal node: append split value to seq and keep descending
+       (trie--mapc --trie--mapc--function --trie--mapc--mapfun
+		   --trie--mapc--node
+		   (trie--seq-append (copy-sequence --trie--mapc--seq)
+				     (trie--node-split --trie--mapc--node))
+		   --trie--mapc--reverse)))
+   ;; --TRIE--MAPC--MAPFUN target
+   (trie--node-subtree --trie--mapc--root)
+   --trie--mapc--reverse))
+
+
+(defun trie-mapc-internal (function trie &optional type)
+  "Apply FUNCTION to all internal associative arrays within TRIE.
+FUNCTION is passed two arguments: an associative array, and the
+sequence it corresponds to.
+
+Optional argument TYPE (one of the symbols vector, lisp or
+string) sets the type of sequence passed to function. Defaults to
+vector."
+  (trie--mapc-internal function (trie--mapfun trie) (trie--root trie)
+		       (cond ((eq type 'string) "")
+			     ((eq type 'lisp) ())
+			     (t []))))
+
+
+(defun trie--mapc-internal (--trie--mapc-internal--function
+			     --trie--mapc-internal--mapfun
+			     --trie--mapc-internal--root
+			     --trie--mapc-internal--seq)
+  (funcall
+   --trie--mapc-internal--mapfun
+   (lambda (--trie--mapc-internal--node)
+     ;; data node
+     (unless (trie--node-data-p --trie--mapc-internal--node)
+       (funcall --trie--mapc-internal--function
+		(trie--node-subtree --trie--mapc-internal--node)
+		--trie--mapc-internal--seq)
+       (trie--mapc-internal
+	--trie--mapc-internal--function
+	--trie--mapc-internal--mapfun
+	--trie--mapc-internal--node
+	(trie--seq-append (copy-sequence --trie--mapc-internal--seq)
+			  (trie--node-split --trie--mapc-internal--node)))))
+   (trie--node-subtree --trie--mapc-internal--root)))
+
 
 (defun trie-map (function trie &optional type reverse)
   "Modify all elements in TRIE by applying FUNCTION to them.
@@ -1058,170 +1156,6 @@ from the stack. Returns nil if the stack is empty."
 
 
 ;; ----------------------------------------------------------------
-;;                        Inserting data
-
-(defun trie-insert (trie key &optional data updatefun)
-  "Associate DATA with KEY in TRIE.
-
-If KEY already exists in TRIE, then DATA replaces the existing
-association, unless UPDATEFUN is supplied. Note that if DATA is
-*not* supplied, this means that the existing association of KEY
-will be replaced by nil.
-
-If UPDATEFUN is supplied and KEY already exists in TRIE,
-UPDATEFUN is called with two arguments: DATA and the existing
-association of KEY. Its return value becomes the new association
-for KEY.
-
-Returns the new association of KEY.
-
-Note: to avoid nasty dynamic scoping bugs, UPDATEFUN must *not*
-bind any variables with names commencing \"--\"."
-  (if (trie--print-form trie)
-      (error "Attempt to operate on trie that is in print-form")
-    ;; absurd variable names are an attempt to avoid dynamic scoping bugs
-    (let ((--trie-insert--updatefun updatefun)
-	  --trie-insert--old-node-flag
-	  (node (trie--root trie))
-	  (len (length key))
-	  (i -1))
-      ;; Descend trie, adding nodes for non-existent elements of KEY. The
-      ;; update function passed to `trie--insertfun' ensures that existing
-      ;; nodes are left intact.
-      (while (< (incf i) len)
-	(setq --trie-insert--old-node-flag nil)
-	(setq node (funcall (trie--insertfun trie)
-			    (trie--node-subtree node)
-			    (trie--node-create (elt key i) key trie)
-			    (lambda (a b)
-			      (setq --trie-insert--old-node-flag t) b))))
-      ;; Create or update data node.
-      (setq node (funcall (trie--insertfun trie)
-			  (trie--node-subtree node)
-			  (trie--node-create-data data)
-			  ;; if using existing data node, wrap UPDATEFUN if
-			  ;; any was supplied
-			  (when (and --trie-insert--old-node-flag
-				     --trie-insert--updatefun)
-			    (lambda (new old)
-			      (setf (trie--node-data old)
-				    (funcall --trie-insert--updatefun
-					     (trie--node-data new)
-					     (trie--node-data old)))
-			      old))))
-      (trie--node-data node))))  ; return new data
-
-
-
-;; ----------------------------------------------------------------
-;;                        Deleting data
-
-(defun trie-delete (trie key &optional test)
-  "Delete KEY and its associated data from TRIE.
-
-If KEY was deleted, a cons cell containing KEY and its
-association is returned. Returns nil if KEY does not exist in
-TRIE.
-
-If TEST is supplied, it should be a function that accepts two
-arguments: the key being deleted, and its associated data. The
-key will then only be deleted if TEST returns non-nil.
-
-Note: to avoid nasty dynamic scoping bugs, TEST must *not* bind
-any variables with names commencing \"--\"."
-  (if (trie--print-form trie)
-      (error "Attempt to operate on trie that is in print-form")
-    (let (--trie-deleted--node
-	  (--trie-delete--key key))
-      (declare (special --trie-deleted--node)
-	       (special --trie-delete--key))
-      (trie--do-delete (trie--root trie) key test
-		       (trie--deletefun trie)
-		       (trie--emptyfun trie)
-		       (trie--cmpfun trie))
-      (when --trie-deleted--node
-	(cons key (trie--node-data --trie-deleted--node))))))
-
-
-(defun trie--do-delete (node --trie--do-delete--seq
-			     --trie--do-delete--test
-			     --trie--do-delete--deletefun
-			     --trie--do-delete--emptyfun
-			     --trie--do-delete--cmpfun)
-  ;; Delete --TRIE--DO-DELETE--SEQ starting from trie node NODE, and return
-  ;; non-nil if we deleted a node. If --TRIE--DO-DELETE--TEST is supplied, it
-  ;; is called with two arguments, the key being deleted and the associated
-  ;; data, and the deletion is only carried out if it returns non-nil.
-
-  ;; The absurd argument names are to lessen the likelihood of dynamical
-  ;; scoping bugs caused by a supplied function binding a variable with the
-  ;; same name as one of the arguments, which would cause a nasty bug when the
-  ;; lambda's (below) are called.
-  (declare (special --trie-deleted--node)
-	   (special --trie-delete--key))
-  ;; if --TRIE--DO-DELETE--SEQ is empty, try to delete data node and return
-  ;; non-nil if we did (return value of --TRIE--DO-DELETE--DELETEFUN is the
-  ;; deleted data, which is always non-nil for a trie)
-  (if (= (length --trie--do-delete--seq) 0)
-      (setq --trie-deleted--node
-	    (funcall --trie--do-delete--deletefun
-		     (trie--node-subtree node)
-		     (trie--node-create-dummy trie--terminator)
-		     (when --trie--do-delete--test
-		       (lambda (n)
-			 (funcall --trie--do-delete--test
-				  --trie-delete--key (trie--node-data n))))
-		     nil))
-    ;; otherwise, delete on down (return value of --TRIE--DO-DELETE--DELETEFUN
-    ;; is the deleted data, which is always non-nil for a trie)
-    (funcall --trie--do-delete--deletefun
-	     (trie--node-subtree node)
-	     (trie--node-create-dummy (elt --trie--do-delete--seq 0))
-	     (lambda (n)
-	       (and (trie--do-delete
-		     n (trie--subseq --trie--do-delete--seq 1)
-		     --trie--do-delete--test
-		     --trie--do-delete--deletefun
-		     --trie--do-delete--emptyfun
-		     --trie--do-delete--cmpfun)
-		    (funcall --trie--do-delete--emptyfun
-			     (trie--node-subtree n))))
-	     nil)))
-
-
-
-;; ----------------------------------------------------------------
-;;                       Retrieving data
-
-(defun trie-lookup (trie key &optional nilflag)
-  "Return the data associated with KEY in the TRIE,
-or nil if KEY does not exist in TRIE.
-
-Optional argument NILFLAG specifies a value to return instead of
-nil if KEY does not exist in TRIE. This allows a non-existent KEY
-to be distinguished from an element with a null association. (See
-also `trie-member-p', which does this for you.)"
-  (if (trie--print-form trie)
-      (error "Attempt to operate on trie that is in print-form")
-    ;; find node corresponding to key, then find data node, then return data
-    (let (node)
-      (or (and (setq node (trie--node-find trie key))
-	       (trie--find-data node trie))
-	  nilflag))))
-
-(defalias 'trie-member 'trie-lookup)
-
-
-(defun trie-member-p (trie key)
-  "Return t if KEY exists in TRIE, nil otherwise."
-  (if (trie--print-form trie)
-      (error "Attempt to operate on trie that is in print-form")
-    (let ((flag '(nil)))
-      (not (eq flag (trie-member trie key flag))))))
-
-
-
-;; ----------------------------------------------------------------
 ;;                         Completing
 
 ;; Implementation Note
@@ -1235,6 +1169,69 @@ also `trie-member-p', which does this for you.)"
 ;; effort, and would have worse space complexity unless coded to work
 ;; "in-place" which would be highly non-trivial. (I haven't done any
 ;; benchmarking, though, so feel free to do so and let me know the results!)
+
+(defmacro trie--complete-construct-accumulator (maxnum filter)
+  ;; Does what it says on the tin! | sed -e 's/on/in/' -e 's/tin/macro name/'
+  `(cond
+    ((and ,filter ,maxnum)
+     (lambda (node seq)
+       (let ((data (trie--node-data node)))
+	 (when (funcall ,filter seq data)
+	   (aset trie--complete-accumulate 0
+		 (cons (cons seq data)
+		       (aref trie--complete-accumulate 0)))
+	   (and (>= (length (aref trie--complete-accumulate 0)) ,maxnum)
+		(throw 'trie-complete--done nil))))))
+    ((and (not ,filter) ,maxnum)
+     (lambda (node seq)
+       (let ((data (trie--node-data node)))
+	 (aset trie--complete-accumulate 0
+	       (cons (cons seq data)
+		     (aref trie--complete-accumulate 0)))
+	 (and (>= (length (aref trie--complete-accumulate 0)) ,maxnum)
+	      (throw 'trie-complete--done nil)))))
+    ((and ,filter (not ,maxnum))
+     (lambda (node seq)
+       (let ((data (trie--node-data node)))
+	 (when (funcall ,filter seq data)
+	   (aset trie--complete-accumulate 0
+		 (cons (cons seq data)
+		       (aref trie--complete-accumulate 0)))))))
+    ((and (not ,filter) (not ,maxnum))
+     (lambda (node seq)
+       (let ((data (trie--node-data node)))
+	 (aset trie--complete-accumulate 0
+	       (cons (cons seq data)
+		     (aref trie--complete-accumulate 0))))))))
+
+
+(defmacro trie--complete-construct-ranked-accumulator (maxnum filter)
+  ;; Does what it says on the tin! | sed -e 's/on/in/' -e 's/tin/macro name/'
+  `(cond
+    ((and ,filter ,maxnum)
+     (lambda (node seq)
+       (let ((data (trie--node-data node)))
+	 (when (funcall ,filter seq data)
+	   (heap-add trie--complete-accumulate (cons seq data))
+	   (and (> (heap-size trie--complete-accumulate) ,maxnum)
+		(heap-delete-root trie--complete-accumulate))))))
+    ((and ,filter (not ,maxnum))
+     (lambda (node seq)
+       (let ((data (trie--node-data node)))
+	 (when (funcall ,filter seq data)
+	   (heap-add trie--complete-accumulate (cons seq data))))))
+    ((and (not ,filter) ,maxnum)
+     (lambda (node seq)
+       (let ((data (trie--node-data node)))
+	 (heap-add trie--complete-accumulate (cons seq data))
+	 (and (> (heap-size trie--complete-accumulate) ,maxnum)
+	      (heap-delete-root trie--complete-accumulate)))))
+    ((and (not ,filter) (not ,maxnum))
+     (lambda (node seq)
+       (let ((data (trie--node-data node)))
+	 (heap-add trie--complete-accumulate (cons seq data)))))))
+
+
 
 (defun trie-complete (trie prefix &optional rankfun maxnum reverse filter)
   "Return an alist containing all completions of PREFIX in TRIE
@@ -1288,7 +1285,8 @@ included in the results, and does not count towards MAXNUM."
       ;;        PREFIX sequence is a list, and the elements of PREFIX are
       ;;        themselves lists (there might be no easy way to fully fix
       ;;        this...)
-      (if (or (atom prefix) (and (listp prefix) (not (sequencep (car prefix)))))
+      (if (or (atom prefix)
+	      (and (listp prefix) (not (sequencep (car prefix)))))
 	  (setq prefix (list prefix))
 	;; sort list of prefixes if sorting completions lexically
 	(when (null rankfun)
@@ -1300,7 +1298,8 @@ included in the results, and does not count towards MAXNUM."
       (if rankfun
 	  (setq accumulator
 		(trie--complete-construct-ranked-accumulator maxnum filter))
-	(setq accumulator (trie--complete-construct-accumulator maxnum filter)))
+	(setq accumulator
+	      (trie--complete-construct-accumulator maxnum filter)))
 
       ;; accumulate completions
       (catch 'trie-complete--done
