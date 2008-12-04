@@ -1461,7 +1461,18 @@ The FILTER argument sets a filter function for the matches. If
 supplied, it is called for each possible match with two
 arguments: the matching key, and its associated data. If the
 filter function returns nil, the match is not included in the
-results, and does not count towards MAXNUM."
+results, and does not count towards MAXNUM.
+
+
+Efficiency concerns:
+
+Wildcard searches on tries are very efficient compared to similar
+searches on other data structures. However, some wildcard
+patterns are inherently time-consuming to match, especially those
+containing `*' wildcards. As a general rule, patterns containing
+a `*' wildcard will be slower the closer the `*' is to the
+beginning of the pattern, and patterns containing multiple `*'
+wildcards can be very slow indeed."
 
   ;; convert trie from print-form if necessary
   (trie-transform-from-read-warn trie)
