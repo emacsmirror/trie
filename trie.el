@@ -158,6 +158,8 @@
 ;;   operate over multiple data structures at once; i.e. they no longer
 ;;   accept lists of trees as arguments. (These features belong in higher
 ;;   level libraries, and the efficiency loss is negligible.)
+;; * `trie-wildcard-search' implements efficient shell-glob-like wildcard
+;;   searches of tries!
 
 
 
@@ -1395,7 +1397,71 @@ it is better to use one of those instead."
 
 (defun trie-wildcard-search (trie pattern
 				  &optional rankfun maxnum reverse filter)
-  "blah"
+  "Return an alist containing all matches for PATTERN in TRIE
+along with their associated data, in the order defined by
+RANKFUN, defaulting to \"lexical\" order (i.e. the order defined
+by the trie's comparison function). If REVERSE is non-nil, the
+completions are sorted in the reverse order. If no completions
+are found, return nil.
+
+PATTERN must be a sequence (vector, list or string) containing
+either elements of the type used to reference data in the trie,
+or any the characters `*', `?', `[', `]', `^' or `\\'. The
+meaning and syntax of these special characters follows shell-glob
+syntax:
+
+  *  wildcard
+    Matches zero or more characters.
+
+  ?  wildcard
+    Matches a single character.
+
+  [...]  character alternative
+    Matches any of the listed characters.
+
+  [^...]  negated character alternative
+    Matches any character *other* then those listed.
+
+  []..]  character alternative including `]'
+    Matches any of the listed characters, including `]'.
+
+  \\  quote literal
+    Causes the next element of the pattern sequence to be treated
+    literally; special characters lose their special meaning, for
+    anything else it has no effect.
+
+To include a `]' in a character alternative, place it immediately
+after the opening `['. To include a literal `\\', quote it with
+another `\\' (remember that `\\' also has to be quoted within
+elisp strings, so as a string this would be \"\\\\\\\\\"). The
+above syntax descriptions are written in terms of strings, but
+the special characters can be used in *any* sequence
+type. E.g. the character alternative \"[abc]\" would be \(?[ ?a
+?b ?c ?]\) as a list, or [?[ ?a ?b ?c ?]] as a vector. The
+\"characters\" in the alternative can of course be any data type
+that might be stored in the trie, not just actual characters.
+
+If PATTERN is a string, it must be possible to apply `string' to
+individual elements of the sequences stored in the trie. The
+matches returned in the alist will be sequences of the same type
+as KEY. If PATTERN is a list of pattern sequences, matches for
+all patterns in the list are included in the returned alist. All
+sequences in the list must be of the same type.
+
+The optional integer argument MAXNUM limits the results to the
+first MAXNUM matches. Otherwise, all matches are returned.
+
+If specified, RANKFUN must accept two arguments, both cons
+cells. The car contains a sequence from the trie (of the same
+type as PREFIX), the cdr contains its associated data. It should
+return non-nil if first argument is ranked strictly higher than
+the second, nil otherwise.
+
+The FILTER argument sets a filter function for the matches. If
+supplied, it is called for each possible match with two
+arguments: the matching key, and its associated data. If the
+filter function returns nil, the match is not included in the
+results, and does not count towards MAXNUM."
 
   ;; convert trie from print-form if necessary
   (trie-transform-from-read-warn trie)
