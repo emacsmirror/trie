@@ -372,13 +372,11 @@ type of sequence as SEQ."
   `(eq (trie--node-split ,node) trie--terminator))
 
 (defmacro trie--node-p (node)
-  ;; Return t if NODE is a trie--node, nil otherwise.
-  ;; Have to define this ourselves, because we created a defstruct
-  ;; without any identifying tags (i.e. (:type vector)) for efficiency.
-  `(and (vectorp ,node)
-	(= (length ,node) 2)
-	(or (trie--node-data-p ,node)
-	    (trie--p (trie--node-subtree ,node)))))
+  ;; Return t if NODE is a TRIE trie--node, nil otherwise.
+  ;; Have to define this ourselves, because we created a defstruct without any
+  ;; identifying tags (i.e. (:type vector)) for efficiency, but this means we
+  ;; can only perform a rudimentary and very unreliable test.
+  `(and (vectorp ,node) (= (length ,node) 2)))
 
 
 (defun trie--node-find (node seq lookupfun)
@@ -409,105 +407,6 @@ type of sequence as SEQ."
   ;; sequence has no associated data.
   `(let ((node (trie--find-data-node ,node ,lookupfun)))
      (when node (trie--node-data node))))
-
-
-
-;;; ----------------------------------------------------------------
-;;;          Functions and macros for handling trie-stacks
-
-(defstruct (trie--stack
-	    (:constructor nil)
-	    (:constructor
-	     trie--stack-create
-	     (trie
-	      &optional
-	      (type 'vector)
-	      reverse
-	      &aux
-	      (stack-createfun (trie--stack-createfun trie))
-	      (stack-popfun (trie--stack-popfun trie))
-	      (stack-emptyfun (trie--stack-emptyfun trie))
-	      (store
-	       (if (trie-empty trie)
-		   nil
-		 (list (cons
-			(cond ((eq type 'list) ())
-			      ((eq type 'string) "")
-			      (t []))
-			(funcall stack-createfun
-				 (trie--node-subtree (trie--root trie))
-				 reverse)))))
-	      (pushed '())
-	      ))
-	    (:constructor
-	     trie--completion-stack-create
-	     (trie prefix
-	      &optional
-	      reverse
-	      &aux
-	      (stack-createfun (trie--stack-createfun trie))
-	      (stack-popfun (trie--stack-popfun trie))
-	      (stack-emptyfun (trie--stack-emptyfun trie))
-	      (store (trie--completion-stack-construct-store
-		      trie prefix reverse))
-	      (pushed '())
-	      ))
-	    (:copier nil))
-  reverse predicatefun stack-createfun stack-popfun stack-emptyfun
-  store pushed)
-
-
-(defun trie--completion-stack-construct-store (trie prefix reverse)
-  ;; Construct store for completion stack based on TRIE.
-  (let (accumulate node)
-    (if (or (atom prefix)
-	    (and (listp prefix)
-		 (not (sequencep (car prefix)))))
-	(setq prefix (list prefix))
-      (setq prefix
-	    (sort prefix
-		  (trie-construct-sortfun
-		   (trie--comparison-function trie)
-		   (not reverse)))))
-    (dolist (pfx prefix)
-      (when (setq node (trie--node-find (trie--root trie) pfx
-					(trie--lookupfun trie)))
-	(push (cons pfx (funcall (trie--stack-createfun trie)
-				 (trie--node-subtree node)
-				 reverse))
-	      accumulate)))
-    accumulate))
-
-
-(defun trie--stack-repopulate (stack)
-  ;; Recursively push children of the node at the head of STACK onto the front
-  ;; of STACK, until a data node is reached.
-
-  ;; nothing to do if stack is empty
-  (unless (trie-stack-empty-p stack)
-    (let ((node (funcall (trie--stack-stack-popfun stack)
-			 (cdar (trie--stack-store stack))))
-	  (seq (caar (trie--stack-store stack))))
-      (when (funcall (trie--stack-stack-emptyfun stack)
-		     (cdar (trie--stack-store stack)))
-	;; effectively (pop (trie--stack-store stack)) w/o compilter warnings
-	(setf (trie--stack-store stack) (cdr (trie--stack-store stack))))
-
-      (while (not (trie--node-data-p node))
-	(push
-	 (cons (trie--seq-append seq (trie--node-split node))
-	       (funcall (trie--stack-stack-createfun stack)
-			(trie--node-subtree node)))
-	 (trie--stack-store stack))
-	(setq node (funcall (trie--stack-stack-popfun stack)
-			    (cdar (trie--stack-store stack)))
-	      seq (caar (trie--stack-store stack)))
-	(when (funcall (trie--stack-stack-emptyfun stack)
-		       (cdar (trie--stack-store stack)))
-	  ;; effectively (pop (trie--stack-store stack)) w/o compiler warnings
-	  (setf (trie--stack-store stack) (cdr (trie--stack-store stack)))))
-
-      (push (cons seq (trie--node-data node)) (trie--stack-store stack)))))
 
 
 
@@ -1083,6 +982,75 @@ bind any variables with names commencing \"--\"."
 ;;; ----------------------------------------------------------------
 ;;;                    Using tries as stacks
 
+(defstruct (trie--stack
+	    (:constructor nil)
+	    (:constructor
+	     trie--stack-create
+	     (trie
+	      &optional
+	      (type 'vector)
+	      reverse
+	      &aux
+	      (comparison-function (trie--comparison-function trie))
+	      (lookupfun (trie--lookupfun trie))
+	      (stack-createfun (trie--stack-createfun trie))
+	      (stack-popfun (trie--stack-popfun trie))
+	      (stack-emptyfun (trie--stack-emptyfun trie))
+	      (repopulatefun 'trie--stack-repopulate)
+	      (store
+	       (if (trie-empty trie)
+		   nil
+		 (trie--stack-repopulate
+		  (list (cons
+			 (cond ((eq type 'list) ())
+			       ((eq type 'string) "")
+			       (t []))
+			 (funcall stack-createfun
+				  (trie--node-subtree (trie--root trie))
+				  reverse)))
+		  reverse
+		  comparison-function lookupfun
+		  stack-createfun stack-popfun stack-emptyfun)))
+	      (pushed '())
+	      ))
+	    (:constructor
+	     trie--completion-stack-create
+	     (trie prefix
+	      &optional
+	      reverse
+	      &aux
+	      (comparison-function (trie--comparison-function trie))
+	      (lookupfun (trie--lookupfun trie))
+	      (stack-createfun (trie--stack-createfun trie))
+	      (stack-popfun (trie--stack-popfun trie))
+	      (stack-emptyfun (trie--stack-emptyfun trie))
+	      (repopulatefun 'trie--stack-repopulate)
+	      (store (trie--completion-stack-construct-store
+		      trie prefix reverse))
+	      (pushed '())
+	      ))
+	    (:constructor
+	     trie--wildcard-stack-create
+	     (trie pattern
+	      &optional
+	      reverse
+	      &aux
+	      (comparison-function (trie--comparison-function trie))
+	      (lookupfun (trie--lookupfun trie))
+	      (stack-createfun (trie--stack-createfun trie))
+	      (stack-popfun (trie--stack-popfun trie))
+	      (stack-emptyfun (trie--stack-emptyfun trie))
+	      (repopulatefun 'trie--wildcard-stack-repopulate)
+	      (store (trie--wildcard-stack-construct-store
+		      trie pattern reverse))
+	      (pushed '())
+	      ))
+	    (:copier nil))
+  reverse comparison-function lookupfun
+  stack-createfun stack-popfun stack-emptyfun
+  repopulatefun store pushed)
+
+
 (defun trie-stack (trie &optional type reverse)
   "Return an object that allows TRIE to be accessed as if it were a stack.
 
@@ -1104,15 +1072,13 @@ functions. As such, they can be useful in implementing efficient
 algorithms on tries. However, in cases where mapping functions
 `trie-mapc', `trie-mapcar' or `trie-mapf' would be sufficient, it
 is better to use one of those instead."
-  (cond
-   ((trie--print-form trie)
-    (error "Attempt to operate on trie that is in print-form"))
-   ((not (functionp (trie--stack-createfun trie)))
-    (error "Trie type does not support stack operations"))
-   (t
-    (let ((stack (trie--stack-create trie type reverse)))
-      (trie--stack-repopulate stack)
-      stack))))
+  ;; convert trie from print-form if necessary
+  (trie-transform-from-read-warn trie)
+  ;; if stack functions aren't defined for trie type, throw error
+  (if (not (functionp (trie--stack-createfun trie)))
+      (error "Trie type does not support stack operations")
+    ;; otherwise, create and initialise a stack
+    (trie--stack-create trie type reverse)))
 
 
 (defun trie-stack-pop (trie-stack)
@@ -1124,7 +1090,15 @@ Returns nil if the stack is empty."
     ;; otherwise, pop first element from trie-stack and repopulate it
     (let ((first (pop (trie--stack-store trie-stack))))
       (when first
-	(trie--stack-repopulate trie-stack)
+	(setf (trie--stack-store trie-stack)
+	      (funcall (trie--stack-repopulatefun trie-stack)
+		       (trie--stack-store trie-stack)
+		       (trie--stack-reverse trie-stack)
+		       (trie--stack-comparison-function trie-stack)
+		       (trie--stack-lookupfun trie-stack)
+		       (trie--stack-stack-createfun trie-stack)
+		       (trie--stack-stack-popfun trie-stack)
+		       (trie--stack-stack-emptyfun trie-stack)))
 	first))))
 
 
@@ -1151,6 +1125,34 @@ from the stack. Returns nil if the stack is empty."
   "Return t if TRIE-STACK is empty, nil otherwise."
   (and (null (trie--stack-store trie-stack))
        (null (trie--stack-pushed trie-stack))))
+
+
+(defun trie--stack-repopulate (store reverse
+			       comparison-function lookupfun
+			       stack-createfun stack-popfun stack-emptyfun)
+  ;; Recursively push children of the node at the head of STORE onto the front
+  ;; of STORE, until a data node is reached.
+
+  ;; nothing to do if stack is empty
+  (when store
+    (let ((node (funcall stack-popfun (cdar store)))
+	  (seq (caar store)))
+      (when (funcall stack-emptyfun (cdar store))
+	;; (pop store) here produces irritating compiler warnings
+	(setq store (cdr store)))
+
+      (while (not (trie--node-data-p node))
+	(push
+	 (cons (trie--seq-append seq (trie--node-split node))
+	       (funcall stack-createfun (trie--node-subtree node) reverse))
+	 store)
+	(setq node (funcall stack-popfun (cdar store))
+	      seq (caar store))
+	(when (funcall stack-emptyfun (cdar store))
+	  ;; (pop store) here produces irritating compiler warnings
+	  (setq store (cdr store))))
+
+      (push (cons seq (trie--node-data node)) store))))
 
 
 
@@ -1242,7 +1244,8 @@ from the stack. Returns nil if the stack is empty."
   ;; RANKFUN is null. The other arguments should be passed straight through
   ;; from the query function.
 
-  `(let* ((--trie-accumulate--rankfun ,rankfun)  ; dynamic-scoping bug avoidance
+  ;; rename RANKFUN to help avoid dynamic-scoping bugs
+  `(let* ((--trie-accumulate--rankfun ,rankfun)
 	  ;; construct structure in which to accumulate results
 	  (trie--accumulate
 	   (if ,rankfun
@@ -1284,7 +1287,6 @@ from the stack. Returns nil if the stack is empty."
       (,maxnum (nreverse (aref trie--accumulate 0)))
       ;; otherwise, just return list
       (t (aref trie--accumulate 0)))))
-
 
 
 
@@ -1380,20 +1382,64 @@ using standard stack functions. As such, they can be useful in
 implementing efficient algorithms on tries. However, in cases
 where `trie-complete' or `trie-complete-ordered' is sufficient,
 it is better to use one of those instead."
-  (cond
-   ((trie--print-form trie)
-    (error "Attempt to operate on trie that is in print-form"))
-   ((not (functionp (trie--stack-createfun trie)))
-    (error "Trie type does not support stack operations"))
-   (t
-    (let ((stack (trie--completion-stack-create trie prefix reverse)))
-      (trie--stack-repopulate stack)
-      stack))))
+  ;; convert trie from print-form if necessary
+  (trie-transform-from-read-warn trie)
+  ;; if stack functions aren't defined for trie type, throw error
+  (if (not (functionp (trie--stack-createfun trie)))
+      (error "Trie type does not support stack operations")
+    ;; otherwise, create and initialise a stack
+    (trie--completion-stack-create trie prefix reverse)))
+
+
+(defun trie--completion-stack-construct-store (trie prefix reverse)
+  ;; Construct store for completion stack based on TRIE.
+  (let (store node)
+    (if (or (atom prefix)
+	    (and (listp prefix)
+		 (not (sequencep (car prefix)))))
+	(setq prefix (list prefix))
+      (setq prefix
+	    (sort prefix
+		  (trie-construct-sortfun
+		   (trie--comparison-function trie)
+		   (not reverse)))))
+    (dolist (pfx prefix)
+      (when (setq node (trie--node-find (trie--root trie) pfx
+					(trie--lookupfun trie)))
+	(push (cons pfx (funcall (trie--stack-createfun trie)
+				 (trie--node-subtree node)
+				 reverse))
+	      store)))
+    (trie--stack-repopulate
+     store reverse
+     (trie--comparison-function trie)
+     (trie--lookupfun trie)
+     (trie--stack-createfun trie)
+     (trie--stack-popfun trie)
+     (trie--stack-emptyfun trie))))
 
 
 
 ;; ----------------------------------------------------------------
-;;                         Completing
+;;                        Wildcard search
+
+(defmacro trie--wildcard-literal-p (el) `(vectorp ,el))
+
+(defmacro trie--wildcard-*-p (el) `(eq ,el ?*))
+
+(defmacro trie--wildcard-?-p (el) `(eq ,el ??))
+
+(defmacro trie--wildcard-char-alt-p (el)
+  `(and (listp ,el)
+	(or (not (eq (car (last ,el)) ?^))
+	    (= (length ,el) 1))))
+
+(defmacro trie--wildcard-neg-char-alt-p (el)
+  `(and (listp ,el)
+	(eq (car (last ,el)) ?^)
+	(not (= (length ,el) 1))))
+
+
 
 (defun trie-wildcard-search (trie pattern
 				  &optional rankfun maxnum reverse filter)
@@ -1532,14 +1578,14 @@ wildcards can be very slow indeed."
 
 
 
-(defun trie--do-wildcard-search (node seq pattern
-				      rankfun maxnum reverse
-				      cmpfun lookupfun mapfun)
+(defun trie--do-wildcard-search
+  (node seq pattern rankfun maxnum reverse
+	comparison-function lookupfun mapfun)
   ;; Perform wildcard search for PATTERN starting at NODE which corresponds to
   ;; SEQ. RANKFUN, MAXNUM and REVERSE should be passed through from query
-  ;; function, CMPFUN, LOOKUPFUN and MAPFUN should be corresponding trie
-  ;; functions (note that CMPFUN should be the trie--comparison-function,
-  ;; *not* the trie--cmpfun)
+  ;; function, COMPARISON-FUNCTION, LOOKUPFUN and MAPFUN should be
+  ;; corresponding trie functions (note that COMPARISON-FUNCTION should be the
+  ;; trie--comparison-function, *not* the trie--cmpfun)
   (declare (special accumulator))
 
   ;; if pattern is null, accumulate data from current node
@@ -1548,19 +1594,26 @@ wildcards can be very slow indeed."
 	(funcall accumulator node seq))
 
     ;; otherwise, extract first pattern element and act on it
-    (setq pattern (trie--parse-wildcard-pattern pattern))
+    (setq pattern (trie--wildcard-parse-pattern pattern))
     (let ((el (car pattern)))
       (setq pattern (cdr pattern))
 
       (cond
+       ;; literal string: descend to corresponding node
+       ((trie--wildcard-literal-p el)
+	(when (setq node (trie--node-find node el lookupfun))
+	  (trie--do-wildcard-search node (trie--seq-concat seq el)
+				    pattern rankfun maxnum reverse
+				    comparison-function lookupfun mapfun)))
+
        ;; terminal *: accumulate everything below current node
-       ((and (null pattern) (eq el ?*))
+       ((and (null pattern) (trie--wildcard-*-p el))
 	(trie--mapc accumulator mapfun node seq
 		    (if maxnum reverse (not reverse))))
 
        ;; * wildcard: map over all nodes immediately below current one, with
        ;;             and without using up the *
-       ((eq el ?*)
+       ((trie--wildcard-*-p el)
 	(funcall mapfun
 		 (lambda (node)
 		   ;; skip data nodes (terminal * dealt with above)
@@ -1569,23 +1622,16 @@ wildcards can be very slow indeed."
 		     (trie--do-wildcard-search
 		      node (trie--seq-append seq (trie--node-split node))
 		      pattern rankfun maxnum reverse
-		      cmpfun lookupfun mapfun)
+		      comparison-function lookupfun mapfun)
 		     ;; not using up *
 		     (trie--do-wildcard-search
 		      node (trie--seq-append seq (trie--node-split node))
 		      (cons ?* pattern) rankfun maxnum reverse
-		      cmpfun lookupfun mapfun)))
+		      comparison-function lookupfun mapfun)))
 		 (trie--node-subtree node)))
 
-       ;; fixed string: descend to corresponding node
-       ((vectorp el)
-	(when (setq node (trie--node-find node el lookupfun))
-	  (trie--do-wildcard-search node (trie--seq-concat seq el)
-				    pattern rankfun maxnum reverse
-				    cmpfun lookupfun mapfun)))
-
        ;; ? wildcard: map over all child nodes
-       ((eq el ??)
+       ((trie--wildcard-?-p el)
 	(funcall mapfun
 		 (lambda (node)
 		   ;; skip data nodes (note: if we wanted to implement a "0 or
@@ -1594,30 +1640,31 @@ wildcards can be very slow indeed."
 		     (trie--do-wildcard-search
 		      node (trie--seq-append seq (trie--node-split node))
 		      pattern rankfun maxnum reverse
-		      cmpfun lookupfun mapfun)
+		      comparison-function lookupfun mapfun)
 		     ))
 		 (trie--node-subtree node)
 		 (if maxnum reverse (not reverse))))
 
        ;; character alternative: descend to corresponding nodes in turn
-       ((and (listp el) (not (eq (car el) ?^)))
+       ((trie--wildcard-char-alt-p el)
 	(let (n)
 	  (mapc
 	   (lambda (c)
 	     (when (setq n (funcall lookupfun (trie--node-subtree node)
 				    (trie--node-create-dummy c)))
-	       (trie--do-wildcard-search n (trie--seq-append seq c)
-					 pattern rankfun maxnum reverse
-					 cmpfun lookupfun mapfun)))
+	       (trie--do-wildcard-search
+		n (trie--seq-append seq c) pattern rankfun maxnum reverse
+		comparison-function lookupfun mapfun)))
 	   (if rankfun el
 	     (sort el (if (or (and maxnum reverse)  ; no xnor in Elisp!
 			      (and (not maxnum) (not reverse)))
-			  (lambda (a b) (not (funcall cmpfun a b)))
-			cmpfun))))))
+			  (lambda (a b)
+			    (not (funcall comparison-function a b)))
+			comparison-function))))))
 
        ;; negated character alternative: map over all child nodes, skipping
        ;; excluded ones
-       ((and (listp el) (eq (car el) ?^))
+       ((trie--wildcard-neg-char-alt-p el)
 	(pop el)
 	(funcall mapfun
 		 (lambda (node)
@@ -1625,71 +1672,280 @@ wildcards can be very slow indeed."
 		   ;; 1" wildcard, would need to accumulate these instead)
 		   (unless (or (trie--node-data-p node)
 			       (catch 'excluded
-				 (dolist (c el)
+				 (dolist (c (butlast el))  ; drop final ^
 				   (when (eq c (trie--node-split node))
 				     (throw 'excluded t)))))
 		     (trie--do-wildcard-search
 		      node (trie--seq-append seq (trie--node-split node))
 		      pattern rankfun maxnum reverse
-		      cmpfun lookupfun mapfun)
+		      comparison-function lookupfun mapfun)
 		     ))
 		 (trie--node-subtree node)
 		 (if maxnum reverse (not reverse))))
-       )
-    )))
+       ))))
 
 
 
-(defun trie--parse-wildcard-pattern (pattern)
+(defun trie-wildcard-stack (trie pattern &optional reverse)
+  "blah"
+  ;; convert trie from print-form if necessary
+  (trie-transform-from-read-warn trie)
+  ;; if stack functions aren't defined for trie type, throw error
+  (if (not (functionp (trie--stack-createfun trie)))
+      (error "Trie type does not support stack operations")
+    ;; otherwise, create and initialise a stack
+    (trie--wildcard-stack-create trie pattern reverse)))
+
+
+
+(defun trie--wildcard-stack-construct-store
+  (trie pattern &optional reverse)
+  ;; Construct store for wildcard stack based on TRIE.
+  (unless (or (atom pattern)
+	      (and (listp pattern)
+		   (not (sequencep (car pattern)))))
+    (error "Multiple pattern searches are not currently supported by\
+ trie-wildcard-stack's"))
+  (let* ((comparison-function (trie--comparison-function trie))
+	 (store
+	 (list
+	  (cons (cond ((stringp pattern) "") ((listp pattern) ()) (t []))
+		;; convert pattern to list before parsing
+		(cons
+		 (trie--wildcard-parse-pattern
+		  (append pattern nil)
+		  (if reverse
+		      `(lambda (a b) (,comparison-function b a))
+		    comparison-function))
+		 (trie--root trie))))))
+    (trie--wildcard-stack-repopulate
+     store reverse
+     (trie--comparison-function trie)
+     (trie--lookupfun trie)
+     (trie--stack-createfun trie)
+     (trie--stack-popfun trie)
+     (trie--stack-emptyfun trie))))
+
+
+
+(defun trie--wildcard-stack-repopulate
+  (store reverse comparison-function lookupfun
+	 stack-createfun stack-popfun stack-emptyfun)
+  ;; Recursively push matching children of the node at the head of STORE onto
+  ;; the front of STORE, until a data node is reached. Sort in (reverse)
+  ;; lexical order if REVERSE is nil (non-nil). The remaining arguments should
+  ;; be the corresponding trie functions (note that COMPARISON-FUNCTION should
+  ;; be the trie--comparison-function, *not* the trie--cmpfun)
+  (let (seq pattern node)
+    (catch 'done
+      (while t
+	;; nothing to do if stack is empty
+	(unless store (throw 'done nil))
+
+
+	;; if first stack element contains single node, and is not a character
+	;; alternative, process it first
+	(setq seq (caar store)
+	      pattern (car (cdar store))
+	      node (cdr (cdar store)))
+	(when (trie--node-p node)
+	  (setq store (cdr store))
+
+	  ;; literal string: descend to corresponding node and continue
+	  ;; processing (following element of pattern must be wildcard)
+	  (when (trie--wildcard-literal-p (car pattern))
+	    (setq node (trie--node-find node (car pattern) lookupfun))
+	    (setq seq (trie--seq-concat seq (car pattern)))
+	    (setq pattern
+		  (trie--wildcard-parse-pattern
+		   (cdr pattern)
+		   (if reverse
+		       `(lambda (a b) (,comparison-function b a))
+		     comparison-function))))
+
+	  (cond
+	   ;; empty pattern: push match (if any) onto stack and we're done
+	   ((null pattern)
+	    (let (data (trie--find-data node))
+	      (setq store (cdr store))
+	      (when data (push (cons seq data) store))
+	      (throw 'done store)))
+
+	   ;; character alternative: push node onto the stack
+	   ((trie--wildcard-char-alt-p (car pattern))
+	    (push (cons seq (cons pattern node)) store))
+
+	    ;; any other wildcard: push a wildcard node stack onto the stack
+	   (t (push (cons seq
+			  (cons pattern
+				(funcall stack-createfun
+					 (trie--node-subtree node) reverse)))
+		    store))))
+
+
+	;; first stack element is a wildcard pattern, so process it
+	(cond
+	 ;; terminal *: standard repopulation using everything below node
+	 ((and (null (cdr pattern)) (trie--wildcard-*-p (car pattern)))
+	  ;; get first node from wildcard node stack
+	  (setq node (funcall stack-popfun (cdr (cdar store))))
+	  (when (funcall stack-emptyfun (cdr (cdar store)))
+	    (setq store (cdr store)))
+	  ;; recursively push node stacks for child nodes onto the stack until
+	  ;; we find a data node
+	  (while (not (trie--node-data-p node))
+	    (push
+	     (cons (trie--seq-append seq (trie--node-split node))
+		   (cons pattern
+			 (funcall stack-createfun
+				  (trie--node-subtree node) reverse)))
+	     store)
+	    (setq node (funcall stack-popfun (cdr (cdar store)))
+		  seq (caar store))
+	    (when (funcall stack-emptyfun (cdr (cdar store)))
+	      (setq store (cdr store))))
+	  (push (cons seq (trie--node-data node)) store)
+	  (throw 'done store))
+
+	 ;; non-terminal *: not currently supported
+	 ((trie--wildcard-*-p (car pattern))
+	  (error "Non-terminal * wildcards are not currently supported by\
+ trie-wildcard-stack's"))
+
+	 ;; ? wildcard: push wildcard node stack onto stack and repopulate
+	 ;; again
+	 ((trie--wildcard-?-p (car pattern))
+	  ;; get first node from wildcard node stack
+	  (setq node (funcall stack-popfun (cdr (cdar store))))
+	  (when (funcall stack-emptyfun (cdr (cdar store)))
+	    (setq store (cdr store)))
+	  (push
+	   (cons (trie--seq-append seq (trie--node-split node))
+		 (cons (trie--wildcard-parse-pattern
+			(cdr pattern)
+			(if reverse
+			    `(lambda (a b) (,comparison-function b a))
+			  comparison-function))
+		       node))
+	   store))
+
+	 ;; character alternative: push next matching node onto stack and
+	 ;; repopulate again
+	 ((trie--wildcard-char-alt-p (car pattern))
+	  (let ((c (pop (car pattern))))
+	    (while (and c
+			(not (setq node
+				   (funcall lookupfun
+					    (trie--node-subtree node)
+					    (trie--node-create-dummy c)))))
+	      (setq c (pop (car pattern))))
+	    ;; if we've exhausted all characters in the alternative, remove it
+	    ;; from the stack
+	    (when (null (car pattern)) (setq store (cdr store)))
+	    ;; if we found a match, push matching node onto stack and
+	    ;; repopulate
+	    (when node
+	      (push
+	       (cons (trie--seq-append seq (trie--node-split node))
+		     (cons (trie--wildcard-parse-pattern
+			    (cdr pattern)
+			    (if reverse
+				`(lambda (a b) (,comparison-function b a))
+			      comparison-function))
+			   node))
+	       store))))
+
+	 ;; negated character alternative: push next non-excluded node onto
+	 ;; stack and repopulate again
+	 ((trie--wildcard-neg-char-alt-p (car pattern))
+	  ;; pop nodes from wildcard node stack until we find one that isn't
+	  ;; excluded
+	  (setq node (funcall stack-popfun (cdr (cdar store))))
+	  (while (and node
+		      (catch 'excluded
+			(dolist (c (butlast (car pattern))) ; drops final ^
+			  (when (eq (trie--node-split node) c)
+			    (throw 'excluded t)))))
+	    (setq node (funcall stack-popfun (cdr (cdar store)))))
+	  ;; remove wildcard node stack if empty
+	  (when (funcall stack-emptyfun (cdr (cdar store)))
+	    (setq store (cdr store)))
+	  ;; if we found a match, push node onto stack; then repopulate again
+	  (when node
+	    (push
+	     (cons (trie--seq-append seq (trie--node-split node))
+		   (cons (trie--wildcard-parse-pattern
+			  (cdr pattern)
+			  (if reverse
+			      `(lambda (a b) (,comparison-function b a))
+			    comparison-function))
+			 node))
+	     store)))
+	 )
+
+	))  ; end of infinite loop and catch
+    )
+  store)  ; return repopulated store
+
+
+
+(defun trie--wildcard-parse-pattern (pattern &optional cmpfun)
   ;; Extract first pattern element from PATTERN (a list), and return it consed
-  ;; with remainder of pattern.
-  (let ((el (pop pattern)))
-    (cond
-     ;; *: drop any following *'s
-     ((eq el ?*)
-      (while (eq (car pattern) ?*) (pop pattern)))
+  ;; with remainder of pattern. If CMPFUN is supplied, it is used to sort
+  ;; character alternatives.
+  (when pattern
+    (let ((el (pop pattern)))
+      (cond
+       ;; *: drop any following *'s
+       ((eq el ?*)
+	(while (eq (car pattern) ?*) (pop pattern)))
 
-     ;; [: gobble up to closing ]
-     ((eq el ?\[)
-      ;; character alternatives are stored in lists
-      (setq el ())
-      ;; gobble ] appearing straight after [
-      (when (eq (car pattern) ?\]) (push (pop pattern) el))
-      (while (not (eq (car pattern) ?\]))
-	(push (pop pattern) el)
-	(unless pattern
-	  (error "Syntax error in trie-wildcard-search pattern:\
+       ;; [: gobble up to closing ]
+       ((eq el ?\[)
+	;; character alternatives are stored in lists
+	(setq el ())
+	;; gobble ] appearing straight after [
+	(when (eq (car pattern) ?\]) (push (pop pattern) el))
+	(while (not (eq (car pattern) ?\]))
+	  (push (pop pattern) el)
+	  (unless pattern
+	    (error "Syntax error in trie wildcard pattern:\
  missing \"]\"")))
-      (pop pattern)  ; dump closing ]
-      (setq el (nreverse el)))
+	(pop pattern)  ; dump closing ]
+	;; if CMPFUN was supplied, sort characters in alternative
+	(when cmpfun
+	  ;; leave final ^ at end in negated character alternative
+	  (if (eq (car (last el)) ?^)
+	      (setq el (concat (sort (butlast el) cmpfun) ?^))
+	    (setq el (sort el cmpfun)))))
 
-     ;; ?: nothing to gobble
-     ((eq el ??))
+       ;; ?: nothing to gobble
+       ((eq el ??))
 
-     ;; ]: syntax error (always gobbled when parsing [)
-     ((eq el ?\])
-      (error "Syntax error in trie-wildcard-search pattern:\
+       ;; ]: syntax error (always gobbled when parsing [)
+       ((eq el ?\])
+	(error "Syntax error in trie wildcard pattern:\
  missing \"[\""))
 
-     ;; anything else, gobble up to first special character
-     (t
-      (push el pattern)
-      (setq el nil)
-      (while (and pattern
-		  (not (or (eq (car pattern) ?\[) (eq (car pattern) ?\])
-			   (eq (car pattern) ?*) (eq (car pattern) ??))))
-	;; \: dump \ and gobble next character
-	(when (eq (car pattern) ?\\)
-	  (pop pattern)
-	  (unless pattern
-	    (error "Syntax error in trie-wildcard-search pattern:\
+       ;; anything else, gobble up to first special character
+       (t
+	(push el pattern)
+	(setq el nil)
+	(while (and pattern
+		    (not (or (eq (car pattern) ?\[) (eq (car pattern) ?\])
+			     (eq (car pattern) ?*) (eq (car pattern) ??))))
+	  ;; \: dump \ and gobble next character
+	  (when (eq (car pattern) ?\\)
+	    (pop pattern)
+	    (unless pattern
+	      (error "Syntax error in trie wildcard pattern:\
  missing character after \"\\\"")))
-	(push (pop pattern) el))
-      ;; fixed strings are stored in vectors
-      (setq el (vconcat (nreverse el)))))
+	  (push (pop pattern) el))
+	;; fixed strings are stored in vectors
+	(setq el (vconcat (nreverse el)))))
 
-    ;; return cons containing first element and remaining pattern
-    (cons el pattern)))
+      ;; return cons containing first element and remaining pattern
+      (cons el pattern))))
 
 
 
