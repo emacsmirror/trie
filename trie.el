@@ -1739,111 +1739,97 @@ wildcards can be very slow indeed."
   (let (seq pattern node)
     (catch 'done
       (while t
-	;; nothing to do if stack is empty
-	(unless store (throw 'done nil))
+	(catch 'cycle
+	  ;; nothing to do if stack is empty
+	  (unless store (throw 'done nil))
 
 
-	;; if first stack element contains single node, and is not a character
-	;; alternative, process it first
-	(setq seq (caar store)
-	      pattern (car (cdar store))
-	      node (cdr (cdar store)))
-	(when (trie--node-p node)
-	  (setq store (cdr store))
+	  ;; if first stack element contains single node, and is not a character
+	  ;; alternative, process it first
+	  (setq seq (caar store)
+		pattern (car (cdar store))
+		node (cdr (cdar store)))
+	  (when (trie--node-p node)
+	    (setq store (cdr store))
+	    ;; literal string: descend to corresponding node and continue
+	    ;; processing (following element of pattern must be wildcard)
+	    (when (trie--wildcard-literal-p (car pattern))
+	      (setq node (trie--node-find node (car pattern) lookupfun))
+	      ;; if we fail to find node corresponding to string, current
+	      ;; branch of search has failed, so cycle and keep searching
+	      (if (null node)
+		  (throw 'cycle nil)
+		;; if we found node corresponding to string, select that node
+		(setq seq (trie--seq-concat seq (car pattern)))
+		(setq pattern
+		      (trie--wildcard-parse-pattern
+		       (cdr pattern)
+		       (if reverse
+			   `(lambda (a b) (,comparison-function b a))
+			 comparison-function)))))
 
-	  ;; literal string: descend to corresponding node and continue
-	  ;; processing (following element of pattern must be wildcard)
-	  (when (trie--wildcard-literal-p (car pattern))
-	    (setq node (trie--node-find node (car pattern) lookupfun))
-	    (setq seq (trie--seq-concat seq (car pattern)))
-	    (setq pattern
-		  (trie--wildcard-parse-pattern
-		   (cdr pattern)
-		   (if reverse
-		       `(lambda (a b) (,comparison-function b a))
-		     comparison-function))))
+	    (cond
+	     ;; empty pattern: look for data node
+	     ((null pattern)
+	      (setq node (trie--find-data-node node lookupfun))
+	      ;; if we fail to find one, current branch of search has failed,
+	      ;; so cycle and keep searching
+	      (if (null node)
+		  (throw 'cycle nil)
+		;; if we find one, push match onto stack and we're done
+		(push (cons seq (trie--node-data node)) store)
+		(throw 'done store)))
 
+	     ;; character alternative: push node onto the stack
+	     ((trie--wildcard-char-alt-p (car pattern))
+	      (push (cons seq (cons pattern node)) store))
+
+	     ;; any other wildcard: push a wildcard node stack onto the stack
+	     (t (push (cons seq
+			    (cons pattern
+				  (funcall stack-createfun
+					   (trie--node-subtree node) reverse)))
+		      store))))
+
+
+	  ;; first stack element is a wildcard pattern, so process it
 	  (cond
-	   ;; empty pattern: push match (if any) onto stack and we're done
-	   ((null pattern)
-	    (let (data (trie--find-data node))
-	      (setq store (cdr store))
-	      (when data (push (cons seq data) store))
-	      (throw 'done store)))
-
-	   ;; character alternative: push node onto the stack
-	   ((trie--wildcard-char-alt-p (car pattern))
-	    (push (cons seq (cons pattern node)) store))
-
-	    ;; any other wildcard: push a wildcard node stack onto the stack
-	   (t (push (cons seq
-			  (cons pattern
-				(funcall stack-createfun
-					 (trie--node-subtree node) reverse)))
-		    store))))
-
-
-	;; first stack element is a wildcard pattern, so process it
-	(cond
-	 ;; terminal *: standard repopulation using everything below node
-	 ((and (null (cdr pattern)) (trie--wildcard-*-p (car pattern)))
-	  ;; get first node from wildcard node stack
-	  (setq node (funcall stack-popfun (cdr (cdar store))))
-	  (when (funcall stack-emptyfun (cdr (cdar store)))
-	    (setq store (cdr store)))
-	  ;; recursively push node stacks for child nodes onto the stack until
-	  ;; we find a data node
-	  (while (not (trie--node-data-p node))
-	    (push
-	     (cons (trie--seq-append seq (trie--node-split node))
-		   (cons pattern
-			 (funcall stack-createfun
-				  (trie--node-subtree node) reverse)))
-	     store)
-	    (setq node (funcall stack-popfun (cdr (cdar store)))
-		  seq (caar store))
+	   ;; terminal *: standard repopulation using everything below node
+	   ((and (null (cdr pattern)) (trie--wildcard-*-p (car pattern)))
+	    ;; get first node from wildcard node stack
+	    (setq node (funcall stack-popfun (cdr (cdar store))))
 	    (when (funcall stack-emptyfun (cdr (cdar store)))
-	      (setq store (cdr store))))
-	  (push (cons seq (trie--node-data node)) store)
-	  (throw 'done store))
+	      (setq store (cdr store)))
+	    ;; recursively push node stacks for child nodes onto the stack until
+	    ;; we find a data node
+	    (while (not (trie--node-data-p node))
+	      (push
+	       (cons (trie--seq-append seq (trie--node-split node))
+		     (cons pattern
+			   (funcall stack-createfun
+				    (trie--node-subtree node) reverse)))
+	       store)
+	      (setq node (funcall stack-popfun (cdr (cdar store)))
+		    seq (caar store))
+	      (when (funcall stack-emptyfun (cdr (cdar store)))
+		(setq store (cdr store))))
+	    (push (cons seq (trie--node-data node)) store)
+	    (throw 'done store))
 
-	 ;; non-terminal *: not currently supported
-	 ((trie--wildcard-*-p (car pattern))
-	  (error "Non-terminal * wildcards are not currently supported by\
+	   ;; non-terminal *: not currently supported
+	   ((trie--wildcard-*-p (car pattern))
+	    (error "Non-terminal * wildcards are not currently supported by\
  trie-wildcard-stack's"))
 
-	 ;; ? wildcard: push wildcard node stack onto stack and repopulate
-	 ;; again
-	 ((trie--wildcard-?-p (car pattern))
-	  ;; get first node from wildcard node stack
-	  (setq node (funcall stack-popfun (cdr (cdar store))))
-	  (when (funcall stack-emptyfun (cdr (cdar store)))
-	    (setq store (cdr store)))
-	  (push
-	   (cons (trie--seq-append seq (trie--node-split node))
-		 (cons (trie--wildcard-parse-pattern
-			(cdr pattern)
-			(if reverse
-			    `(lambda (a b) (,comparison-function b a))
-			  comparison-function))
-		       node))
-	   store))
-
-	 ;; character alternative: push next matching node onto stack and
-	 ;; repopulate again
-	 ((trie--wildcard-char-alt-p (car pattern))
-	  (let ((c (pop (car pattern))))
-	    (while (and c
-			(not (setq node
-				   (funcall lookupfun
-					    (trie--node-subtree node)
-					    (trie--node-create-dummy c)))))
-	      (setq c (pop (car pattern))))
-	    ;; if we've exhausted all characters in the alternative, remove it
-	    ;; from the stack
-	    (when (null (car pattern)) (setq store (cdr store)))
-	    ;; if we found a match, push matching node onto stack and
-	    ;; repopulate
+	   ;; ? wildcard: push wildcard node stack onto stack and repopulate
+	   ;; again
+	   ((trie--wildcard-?-p (car pattern))
+	    ;; get first non-data node from wildcard node stack
+	    (setq node (funcall stack-popfun (cdr (cdar store))))
+	    (when (and node (trie--node-data-p node))
+	      (setq node (funcall stack-popfun (cdr (cdar store)))))
+	    (when (funcall stack-emptyfun (cdr (cdar store)))
+	      (setq store (cdr store)))
 	    (when node
 	      (push
 	       (cons (trie--seq-append seq (trie--node-split node))
@@ -1853,37 +1839,62 @@ wildcards can be very slow indeed."
 				`(lambda (a b) (,comparison-function b a))
 			      comparison-function))
 			   node))
-	       store))))
+	       store)))
 
-	 ;; negated character alternative: push next non-excluded node onto
-	 ;; stack and repopulate again
-	 ((trie--wildcard-neg-char-alt-p (car pattern))
-	  ;; pop nodes from wildcard node stack until we find one that isn't
-	  ;; excluded
-	  (setq node (funcall stack-popfun (cdr (cdar store))))
-	  (while (and node
-		      (catch 'excluded
-			(dolist (c (butlast (car pattern))) ; drops final ^
-			  (when (eq (trie--node-split node) c)
-			    (throw 'excluded t)))))
-	    (setq node (funcall stack-popfun (cdr (cdar store)))))
-	  ;; remove wildcard node stack if empty
-	  (when (funcall stack-emptyfun (cdr (cdar store)))
-	    (setq store (cdr store)))
-	  ;; if we found a match, push node onto stack; then repopulate again
-	  (when node
-	    (push
-	     (cons (trie--seq-append seq (trie--node-split node))
-		   (cons (trie--wildcard-parse-pattern
-			  (cdr pattern)
-			  (if reverse
-			      `(lambda (a b) (,comparison-function b a))
-			    comparison-function))
-			 node))
-	     store)))
-	 )
+	   ;; character alternative: push next matching node onto stack and
+	   ;; repopulate again
+	   ((trie--wildcard-char-alt-p (car pattern))
+	    (let ((c (pop (car pattern))))
+	      (while (and c
+			  (not (setq node
+				     (funcall lookupfun
+					      (trie--node-subtree node)
+					      (trie--node-create-dummy c)))))
+		(setq c (pop (car pattern))))
+	      ;; if we've exhausted all characters in the alternative, remove it
+	      ;; from the stack
+	      (when (null (car pattern)) (setq store (cdr store)))
+	      ;; if we found a match, push matching node onto stack and
+	      ;; repopulate
+	      (when node
+		(push
+		 (cons (trie--seq-append seq (trie--node-split node))
+		       (cons (trie--wildcard-parse-pattern
+			      (cdr pattern)
+			      (if reverse
+				  `(lambda (a b) (,comparison-function b a))
+				comparison-function))
+			     node))
+		 store))))
 
-	))  ; end of infinite loop and catch
+	   ;; negated character alternative: push next non-excluded node onto
+	   ;; stack and repopulate again
+	   ((trie--wildcard-neg-char-alt-p (car pattern))
+	    ;; pop nodes from wildcard node stack until we find one that isn't
+	    ;; excluded
+	    (setq node (funcall stack-popfun (cdr (cdar store))))
+	    (while (and node
+			(catch 'excluded
+			  (dolist (c (butlast (car pattern))) ; drops final ^
+			    (when (eq (trie--node-split node) c)
+			      (throw 'excluded t)))))
+	      (setq node (funcall stack-popfun (cdr (cdar store)))))
+	    ;; remove wildcard node stack if empty
+	    (when (funcall stack-emptyfun (cdr (cdar store)))
+	      (setq store (cdr store)))
+	    ;; if we found a match, push node onto stack; then repopulate again
+	    (when node
+	      (push
+	       (cons (trie--seq-append seq (trie--node-split node))
+		     (cons (trie--wildcard-parse-pattern
+			    (cdr pattern)
+			    (if reverse
+				`(lambda (a b) (,comparison-function b a))
+			      comparison-function))
+			   node))
+	       store)))
+	   )
+	  )))  ; end of infinite loop and catches
     )
   store)  ; return repopulated store
 
