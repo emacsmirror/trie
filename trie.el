@@ -1440,6 +1440,73 @@ it is better to use one of those instead."
 	(not (= (length ,el) 1))))
 
 
+(defun trie-wildcard-match (pattern sequence cmpfun)
+  "Return t if wildcard PATTERN matches SEQ, nil otherwise.
+CMPFUN is used as the comparison function for comparing elements
+of the sequence against the pattern."
+  (let ((pat (append pattern nil))  ; convert pattern to list
+	el)
+    (catch 'match
+
+      ;; parse pattern
+      (while (and pat (> (length sequence) 0))
+	(setq pat (trie--wildcard-parse-pattern pat)
+	      el (car pat)
+	      pat (cdr pat))
+	(cond
+
+	 ;; literal string: compare elements
+	 ((trie--wildcard-literal-p el)
+	  ;;
+	  (when (or (> (length el) (length sequence))
+		    (and (null pat) (< (length el) (length sequence))))
+	    (throw 'match nil))
+	  ;; compare element by element using CMPFUN
+	  (dotimes (i (length el))
+	    (when (or (funcall cmpfun (elt sequence i) (aref el i))
+		      (funcall cmpfun (aref el i) (elt sequence i)))
+	      (throw 'match nil)))
+	  (setq sequence (trie--subseq sequence (length el))))
+
+	 ;; ? wildcard: accept anything
+	 ((trie--wildcard-?-p el)
+	  (setq sequence (trie--subseq sequence 1)))
+
+	 ;; character alternative: check next element matches
+	 ((trie--wildcard-char-alt-p el)
+	  (while (and el
+		      (or (funcall cmpfun (elt sequence 0) (car el))
+			  (funcall cmpfun (car el) (elt sequence 0))))
+	    (setq el (cdr el)))
+	  (if el
+	      (setq sequence (trie--subseq sequence 1))
+	    (throw 'match nil)))
+
+	 ;; negated character alternative: check next element isn't excluded
+	 ((trie--wildcard-neg-char-alt-p el)
+	  (dolist (c (butlast el))  ; drop final ^
+	    (unless (or (funcall cmpfun (elt sequence 0) c)
+			(funcall cmpfun c (elt sequence 0)))
+	      (throw 'match nil))))
+
+	 ;; * wildcard: oh boy, gonna have to recursively check all possible
+	 ;; search brances
+	 ((trie--wildcard-*-p el)
+	  (setq sequence (trie--subseq sequence 1))
+	  (throw 'match
+		 (or (= (length sequence) 0)
+		     (and pat (trie-wildcard-match pat sequence cmpfun))
+		     (trie-wildcard-match pattern sequence cmpfun)))))
+	;; store unparsed pattern for next iteration
+	(setq pattern pat))
+
+      ;; if we got to the end of PATTERN, SEQUENCE matched
+      (if (or pat (> (length sequence) 0)) nil t)
+      )))
+
+
+
+
 
 (defun trie-wildcard-search (trie pattern
 				  &optional rankfun maxnum reverse filter)
@@ -1749,6 +1816,7 @@ wildcards can be very slow indeed."
 	  (setq seq (caar store)
 		pattern (car (cdar store))
 		node (cdr (cdar store)))
+	  ;; FIXME: trie--node-p is unreliable
 	  (when (trie--node-p node)
 	    (setq store (cdr store))
 	    ;; literal string: descend to corresponding node and continue
