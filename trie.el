@@ -1238,11 +1238,12 @@ from the stack. Returns nil if the stack is empty."
   (rankfun maxnum reverse filter accfun duplicates &rest body)
   ;; Accumulate results of running BODY code, and return them in appropriate
   ;; order. BODY should call ACCFUN to accumulate a result, passing it two
-  ;; arguments: a trie data node, and the corresponding sequence. A non-null
-  ;; DUPLICATES flag signals that the accumulated results might contain
-  ;; duplicates, which should be deleted. Note that DUPLICATES is ignored if
-  ;; RANKFUN is null. The other arguments should be passed straight through
-  ;; from the query function.
+  ;; arguments: a trie data node, and the corresponding sequence. BODY can
+  ;; throw 'trie-complete--done to terminate the accumulation and return the
+  ;; results. A non-null DUPLICATES flag signals that the accumulated results
+  ;; might contain duplicates, which should be deleted. Note that DUPLICATES
+  ;; is ignored if RANKFUN is null. The other arguments should be passed
+  ;; straight through from the query function.
 
   ;; rename RANKFUN to help avoid dynamic-scoping bugs
   `(let* ((--trie-accumulate--rankfun ,rankfun)
@@ -1536,8 +1537,11 @@ syntax:
   [^...]  negated character alternative
     Matches any character *other* then those listed.
 
-  []..]  character alternative including `]'
+  []...]  character alternative including `]'
     Matches any of the listed characters, including `]'.
+
+  [^]...]  negated character alternative including `]'
+    Matches any character other than `]' and any others listed.
 
   \\  quote literal
     Causes the next element of the pattern sequence to be treated
@@ -1545,15 +1549,19 @@ syntax:
     anything else it has no effect.
 
 To include a `]' in a character alternative, place it immediately
-after the opening `['. To include a literal `\\', quote it with
-another `\\' (remember that `\\' also has to be quoted within
-elisp strings, so as a string this would be \"\\\\\\\\\"). The
-above syntax descriptions are written in terms of strings, but
-the special characters can be used in *any* sequence
-type. E.g. the character alternative \"[abc]\" would be \(?[ ?a
-?b ?c ?]\) as a list, or [?[ ?a ?b ?c ?]] as a vector. The
-\"characters\" in the alternative can of course be any data type
-that might be stored in the trie, not just actual characters.
+after the opening `[', or the opening `[^' in a negated character
+alternative. To include a `^' in a character alternative, negated
+or otherwise, place it anywhere other than immediately after the
+opening `['. To include a literal `\\' in the pattern, quote it
+with another `\\' (remember that `\\' also has to be quoted
+within elisp strings, so as a string this would be
+\"\\\\\\\\\"). The above syntax descriptions are written in terms
+of strings, but the special characters can be used in *any*
+sequence type. E.g. the character alternative \"[abc]\" would be
+\(?[ ?a ?b ?c ?]\) as a list, or [?[ ?a ?b ?c ?]] as a
+vector. The \"characters\" in the alternative can of course be
+any data type that might be stored in the trie, not just actual
+characters.
 
 If PATTERN is a string, it must be possible to apply `string' to
 individual elements of the sequences stored in the trie. The
@@ -1782,8 +1790,11 @@ syntax, with one major restriction on the `*' wildcard:
   [^...]  negated character alternative
     Matches any character *other* then those listed.
 
-  []..]  character alternative including `]'
+  []...]  character alternative including `]'
     Matches any of the listed characters, including `]'.
+
+  [^]...]  negated character alternative including `]'
+    Matches any character other than `]' and any others listed.
 
   \\  quote literal
     Causes the next element of the pattern sequence to be treated
@@ -1791,15 +1802,19 @@ syntax, with one major restriction on the `*' wildcard:
     anything else it has no effect.
 
 To include a `]' in a character alternative, place it immediately
-after the opening `['. To include a literal `\\', quote it with
-another `\\' (remember that `\\' also has to be quoted within
-elisp strings, so as a string this would be \"\\\\\\\\\"). The
-above syntax descriptions are written in terms of strings, but
-the special characters can be used in *any* sequence
-type. E.g. the character alternative \"[abc]\" would be \(?[ ?a
-?b ?c ?]\) as a list, or [?[ ?a ?b ?c ?]] as a vector. The
-\"characters\" in the alternative can of course be any data type
-that might be stored in the trie, not just actual characters.
+after the opening `[', or the opening `[^' in a negated character
+alternative. To include a `^' in a character alternative, negated
+or otherwise, place it anywhere other than immediately after the
+opening `['. To include a literal `\\' in the pattern, quote it
+with another `\\' (remember that `\\' also has to be quoted
+within elisp strings, so as a string this would be
+\"\\\\\\\\\"). The above syntax descriptions are written in terms
+of strings, but the special characters can be used in *any*
+sequence type. E.g. the character alternative \"[abc]\" would be
+\(?[ ?a ?b ?c ?]\) as a list, or [?[ ?a ?b ?c ?]] as a
+vector. The \"characters\" in the alternative can of course be
+any data type that might be stored in the trie, not just actual
+characters.
 
 If PATTERN is a string, it must be possible to apply `string' to
 individual elements of the sequences stored in the trie. The
@@ -1813,7 +1828,6 @@ Wildcard searches on tries are very efficient compared to similar
 searches on other data structures. Due to the restrictions on the
 `*' wildcard, there is no significant difference between the
 efficiency of all legitimate patterns."
-
   ;; convert trie from print-form if necessary
   (trie-transform-from-read-warn trie)
   ;; if stack functions aren't defined for trie type, throw error
@@ -2042,8 +2056,14 @@ efficiency of all legitimate patterns."
        ((eq el ?\[)
 	;; character alternatives are stored in lists
 	(setq el ())
-	;; gobble ] appearing straight after [
-	(when (eq (car pattern) ?\]) (push (pop pattern) el))
+	(cond
+	 ;; gobble ] appearing straight after [
+	 ((eq (car pattern) ?\]) (push (pop pattern) el))
+	 ;; gobble ] appearing straight after [^
+	 ((and (eq (car pattern) ?^) (eq (nth 1 pattern) ?\]))
+	  (push (pop pattern) el)
+	  (push (pop pattern) el)))
+	;; gobble everything up to closing ]
 	(while (not (eq (car pattern) ?\]))
 	  (push (pop pattern) el)
 	  (unless pattern
