@@ -1757,7 +1757,7 @@ wildcards will be particularly slow."
 	     (while pat
 	       (if (null grp-stack)
 		   (error "Syntax error in trie wildcard pattern: missing \"(\"")
-		 (push (cons (pop grp-stack) idx) grps)
+		 (push (cons (pop grp-stack) (length seq)) grps)
 		 (setq pat (cdr pat))))
 	     (unless (null grp-stack)
 	       (error "Syntax error in trie wildcard pattern: missing \")\""))
