@@ -1681,16 +1681,17 @@ wildcards will be particularly slow."
 
   ;; if pattern is null, accumulate data from current node
   (if (null pattern)
-      (unless (null group-stack)
-	(error "Syntax error in trie wildcard pattern: missing \")\""))
-      (when (setq node (trie--find-data-node node lookupfun))
-	(setq groups
-	      (sort groups
-		    (lambda (a b)
-		      (or (< (car a) (car b))
-			  (and (= (car a) (car b))
-			       (> (cdr a) (cdr b)))))))
-	(funcall accumulator node (if groups (cons seq groups) seq)))
+      (progn
+	(unless (null group-stack)
+	  (error "Syntax error in trie wildcard pattern: missing \")\""))
+	(when (setq node (trie--find-data-node node lookupfun))
+	  (setq groups
+		(sort groups
+		      (lambda (a b)
+			(or (< (car a) (car b))
+			    (and (= (car a) (car b))
+				 (> (cdr a) (cdr b)))))))
+	  (funcall accumulator node (if groups (cons seq groups) seq))))
 
     ;; otherwise, extract first pattern element and act on it
     (setq pattern (trie--wildcard-parse-pattern pattern))
@@ -1730,11 +1731,19 @@ wildcards will be particularly slow."
 
        ;; terminal *: accumulate everything below current node
        ((and (null pattern) (trie--wildcard-*-p el))
-	(trie--mapc accumulator mapfun node seq
-		    (if maxnum reverse (not reverse))))
+	(unless (null group-stack)
+	  (error "Syntax error in trie wildcard pattern: missing \")\""))
+	(let ((grps (sort (copy-sequence groups)
+			  (lambda (a b)
+			    (or (< (car a) (car b))
+				(and (= (car a) (car b))
+				     (> (cdr a) (cdr b))))))))
+	  (trie--mapc
+	   (lambda (node seq) (funcall accumulator node (cons seq grps)))
+	   mapfun node seq (if maxnum reverse (not reverse)))))
 
-       ;; terminal * then ): accumulate everything below current node and
-       ;;                    close group(s)
+       ;; terminal * and ): accumulate everything below current node and
+       ;;                   close group(s)
        ((and (trie--wildcard-*-p el)
 	     (catch 'not-group
 	       (dolist (el pattern)
@@ -1745,10 +1754,11 @@ wildcards will be particularly slow."
 	   (let ((grp-stack group-stack)
 		 (grps (copy-sequence groups))
 		 (pat pattern))
-	     (dotimes (i (trie--wildcard-group-count el))
+	     (while pat
 	       (if (null grp-stack)
 		   (error "Syntax error in trie wildcard pattern: missing \"(\"")
-		 (push (cons (pop grp-stack) idx) grps)))
+		 (push (cons (pop grp-stack) idx) grps)
+		 (setq pat (cdr pat))))
 	     (unless (null grp-stack)
 	       (error "Syntax error in trie wildcard pattern: missing \")\""))
 	     (setq grps
