@@ -172,7 +172,7 @@
 
 
 ;;; ================================================================
-;;;                Setup pre-defined trie types
+;;;                   Pre-defined trie types
 
 ;; --- avl-tree ---
 (put 'avl :trie-createfun (lambda (cmpfun seq) (avl-tree-create cmpfun)))
@@ -190,69 +190,7 @@
 
 
 ;;; ================================================================
-;;;                Replacements for CL functions
-
-;; copied from cl-extra.el
-(defun trie--subseq (seq start &optional end)
-  "Return the subsequence of SEQ from START to END.
-If END is omitted, it defaults to the length of the sequence.
-If START or END is negative, it counts from the end."
-  (if (stringp seq) (substring seq start end)
-    (let (len)
-      (and end (< end 0) (setq end (+ end (setq len (length seq)))))
-      (when (< start 0)
-	(setq start (+ start (or len (setq len (length seq))))))
-      (cond ((listp seq)
-	     (if (> start 0) (setq seq (nthcdr start seq)))
-	     (if end
-		 (let ((res nil))
-		   (while (>= (setq end (1- end)) start)
-		     (push (pop seq) res))
-		   (nreverse res))
-	       (copy-sequence seq)))
-	    (t
-	     (or end (setq end (or len (length seq))))
-	     (let ((res (make-vector (max (- end start) 0) nil))
-		   (i 0))
-	       (while (< start end)
-		 (aset res i (aref seq start))
-		 (setq i (1+ i) start (1+ start)))
-	       res))))))
-
-
-(defun trie--position (item list)
-  "Find the first occurrence of ITEM in LIST.
-Return the index of the matching item, or nil of not found.
-Comparison is done with 'equal."
-  (let (el (i 0))
-    (catch 'found
-      (while (setq el (nth i list))
-        (when (equal item el) (throw 'found i))
-        (setq i (1+ i))
-        nil))))
-
-
-(defun trie--seq-append (seq el)
-  "Append EL to the end of sequence SEQ."
-  (cond
-   ((stringp seq) (concat seq (string el)))
-   ((vectorp seq) (vconcat seq (vector el)))
-   ((listp seq)	  (append seq (list el)))))
-
-
-(defun trie--seq-concat (seq &rest sequences)
-  "Concatenate SEQ and SEQUENCES, and make the result the same
-type of sequence as SEQ."
-  (cond
-   ((stringp seq) (apply 'concat  seq sequences))
-   ((vectorp seq) (apply 'vconcat seq sequences))
-   ((listp seq)	  (apply 'append  seq sequences))))
-
-
-
-;;; ================================================================
-;;;     Internal functions only for use within the trie package
-
+;;;           Internal utility functions and macros
 
 ;;; ----------------------------------------------------------------
 ;;;           Functions and macros for handling a trie.
@@ -434,8 +372,8 @@ type of sequence as SEQ."
 (defmacro trie-transform-from-read-warn (trie)
   "Transform TRIE from print form, with warning."
   `(when (trie--print-form ,trie)
-     (warn (concat "Attempt to operate on trie in print-form; converting to\
- normal form"))
+     (warn (concat "Attempt to operate on trie in print-form;\
+ converting to normal form"))
      (trie-transform-from-read ,trie)))
 
 
@@ -456,9 +394,70 @@ type of sequence as SEQ."
 
 
 
+;;; ----------------------------------------------------------------
+;;;                Replacements for CL functions
+
+;; copied from cl-extra.el
+(defun trie--subseq (seq start &optional end)
+  "Return the subsequence of SEQ from START to END.
+If END is omitted, it defaults to the length of the sequence.
+If START or END is negative, it counts from the end."
+  (if (stringp seq) (substring seq start end)
+    (let (len)
+      (and end (< end 0) (setq end (+ end (setq len (length seq)))))
+      (when (< start 0)
+	(setq start (+ start (or len (setq len (length seq))))))
+      (cond ((listp seq)
+	     (if (> start 0) (setq seq (nthcdr start seq)))
+	     (if end
+		 (let ((res nil))
+		   (while (>= (setq end (1- end)) start)
+		     (push (pop seq) res))
+		   (nreverse res))
+	       (copy-sequence seq)))
+	    (t
+	     (or end (setq end (or len (length seq))))
+	     (let ((res (make-vector (max (- end start) 0) nil))
+		   (i 0))
+	       (while (< start end)
+		 (aset res i (aref seq start))
+		 (setq i (1+ i) start (1+ start)))
+	       res))))))
+
+
+(defun trie--position (item list)
+  "Find the first occurrence of ITEM in LIST.
+Return the index of the matching item, or nil of not found.
+Comparison is done with 'equal."
+  (let (el (i 0))
+    (catch 'found
+      (while (setq el (nth i list))
+        (when (equal item el) (throw 'found i))
+        (setq i (1+ i))
+        nil))))
+
+
+(defsubst trie--seq-append (seq el)
+  "Append EL to the end of sequence SEQ."
+  (cond
+   ((stringp seq) (concat seq (string el)))
+   ((vectorp seq) (vconcat seq (vector el)))
+   ((listp seq)	  (append seq (list el)))))
+
+
+(defsubst trie--seq-concat (seq &rest sequences)
+  "Concatenate SEQ and SEQUENCES, and make the result the same
+type of sequence as SEQ."
+  (cond
+   ((stringp seq) (apply 'concat  seq sequences))
+   ((vectorp seq) (apply 'vconcat seq sequences))
+   ((listp seq)	  (apply 'append  seq sequences))))
+
+
+
 
 ;;; ================================================================
-;;;        The public functions which operate on tries.
+;;;                     Basic trie operations
 
 (defalias 'trie-create 'trie--create
   "Return a new trie that uses comparison function COMPARISON-FUNCTION.
@@ -786,7 +785,8 @@ also `trie-member-p', which does this for you.)"
 
 
 
-;;; ----------------------------------------------------------------
+
+;;; ================================================================
 ;;;                      Mapping over tries
 
 (defun trie--mapc (--trie--mapc--function --trie--mapc--mapfun
@@ -979,7 +979,8 @@ bind any variables with names commencing \"--\"."
 
 
 
-;;; ----------------------------------------------------------------
+
+;;; ================================================================
 ;;;                    Using tries as stacks
 
 (defstruct (trie--stack
@@ -1156,8 +1157,9 @@ from the stack. Returns nil if the stack is empty."
 
 
 
-;; ----------------------------------------------------------------
-;;                   Advanced query-building macros
+
+;; ================================================================
+;;                   Query-building utility macros
 
 ;; Implementation Note
 ;; -------------------
@@ -1291,7 +1293,8 @@ from the stack. Returns nil if the stack is empty."
 
 
 
-;; ----------------------------------------------------------------
+
+;; ================================================================
 ;;                          Completing
 
 (defun trie-complete (trie prefix &optional rankfun maxnum reverse filter)
@@ -1422,7 +1425,8 @@ it is better to use one of those instead."
 
 
 
-;; ----------------------------------------------------------------
+
+;; ================================================================
 ;;                        Wildcard search
 
 (defmacro trie--wildcard-literal-p (el) `(vectorp ,el))
@@ -1454,6 +1458,9 @@ it is better to use one of those instead."
 
 
 
+;;; ----------------------------------------------------------------
+;;;                 The public search functions
+
 (defun trie-wildcard-match (pattern sequence cmpfun)
   "Return t if wildcard PATTERN matches SEQ, nil otherwise.
 CMPFUN is used as the comparison function for comparing elements
@@ -1475,7 +1482,8 @@ of the sequence against the pattern."
 
 	 ;; literal string: compare elements
 	 ((trie--wildcard-literal-p el)
-	  ;;
+	  ;; if literal is longer than remaining string, or literal is at end
+	  ;; of pattern and remaining string is too long, match has failed
 	  (when (or (> (length el) (length sequence))
 		    (and (null pat) (< (length el) (length sequence))))
 	    (throw 'match nil))
@@ -1507,22 +1515,34 @@ of the sequence against the pattern."
 			(funcall cmpfun c (elt sequence 0)))
 	      (throw 'match nil))))
 
-	 ;; * wildcard: oh boy, gonna have to recursively check all possible
-	 ;; search brances
-	 ((trie--wildcard-*-p el)
-	  (setq sequence (trie--subseq sequence 1))
-	  (throw 'match
-		 (or (= (length sequence) 0)
-		     (and pat (trie-wildcard-match pat sequence cmpfun))
-		     (trie-wildcard-match pattern sequence cmpfun)))))
+	 ;; terminal * and possibly ): Houston, we have a match!
+	 ((and (trie--wildcard-*-p el)
+	       (catch 'not-group
+		 (dolist (el pattern)
+		   (unless (eq el ?\)) (throw 'not-group nil)))
+		 t))
+	  (throw 'match t))
+
+       ;; non-terminal *: not supported for efficiency reasons
+       ((trie--wildcard-*-p el)
+	  (error "Syntax error in trie wildcard pattern:\
+non-terminal * wildcards are not supported"))
+
+;;; 	 ;; * wildcard: oh boy, gonna have to recursively check all possible
+;;; 	 ;;             search brances
+;;; 	 ((trie--wildcard-*-p el)
+;;; 	  (setq sequence (trie--subseq sequence 1))
+;;; 	  (throw 'match
+;;; 		 (or (= (length sequence) 0)
+;;; 		     (and pat (trie-wildcard-match pat sequence cmpfun))
+;;; 		     (trie-wildcard-match pattern sequence cmpfun))))
+	 )
 	;; store unparsed pattern for next iteration
 	(setq pattern pat))
 
       ;; if we got to the end of PATTERN, SEQUENCE matched
       (if (or pat (> (length sequence) 0)) nil t)
       )))
-
-
 
 
 
@@ -1542,7 +1562,8 @@ meaning and syntax of these special characters follows shell-glob
 syntax:
 
   *  wildcard
-    Matches zero or more characters.
+    Matches zero or more characters. May *only* appear at the end
+    of the pattern.
 
   ?  wildcard
     Matches any single character.
@@ -1586,13 +1607,13 @@ any data type that might be stored in the trie, not just actual
 characters.
 
 Grouping constructs have no effect on which keys match the
-pattern, but data about which characters of each match matched
-which group are included in the results. When groups are present,
-the car of an element in the results alist is no longer a
-straight key. Instead, it is a list whose first element is the
-matching key, and the remainder contains cons cells whose cars
-and cdrs give the start and end indices of the characters that
-matched the corresponding groups, in order.
+pattern, but data about which characters matched which group are
+included in the results. When groups are present, the car of an
+element in the results alist is no longer a straight
+key. Instead, it is a list whose first element is the matching
+key, and the remainder contains cons cells whose cars and cdrs
+give the start and end indices of the characters that matched the
+corresponding groups, in order.
 
 If PATTERN is a string, it must be possible to apply `string' to
 individual elements of the sequences stored in the trie. The
@@ -1620,12 +1641,15 @@ results, and does not count towards MAXNUM.
 Efficiency concerns:
 
 Wildcard searches on tries are very efficient compared to similar
-searches on other data structures. However, some wildcard
-patterns are inherently time-consuming to match, especially those
-containing `*' wildcards. As a general rule, patterns containing
-a `*' wildcard will be slower the closer the `*' is to the
-beginning of the pattern, and patterns containing multiple `*'
-wildcards will be particularly slow."
+searches on other data structures. The supported wildcard
+patterns are the subset of shell-glob patterns that can be
+searched efficiently. Note, however, that supplying a list of
+PATTERN's simply finds matches for each pattern independently,
+and sorts the results (removing any duplicates), which for
+closely-related patterns is inefficient. If you want true
+alternation and a less limited pattern syntax, use
+`trie-regexp-search' instead...but you'll have to implement it
+first!."
 
   ;; convert trie from print-form if necessary
   (trie-transform-from-read-warn trie)
@@ -1663,6 +1687,281 @@ wildcards will be particularly slow."
 		(trie--mapfun trie)))
 	     ;; convert patterns to lists
 	     (mapcar (lambda (pat) (append pat nil)) pattern))))))
+
+
+
+(defun trie-wildcard-stack (trie pattern &optional reverse)
+  "Return an object that allows matches to PATTERN to be accessed
+as if they were a stack.
+
+The stack is sorted in \"lexical\" order, i.e. the order defined
+by TRIE's comparison function, or in reverse order if REVERSE is
+non-nil. Calling `trie-stack-pop' pops the top element (a cons
+cell containing a key and its associated data) from the stack.
+
+PATTERN must be a sequence (vector, list or string) containing
+either elements of the type used to reference data in the trie,
+or any the characters `*', `?', `[', `]', `^' or `\\'. The
+meaning and syntax of these special characters follows shell-glob
+syntax, with one major restriction on the `*' wildcard:
+
+  *  wildcard
+    Matches zero or more characters. May *only* appear at the end
+    of the pattern.
+
+  ?  wildcard
+    Matches any single character.
+
+  [...]  character alternative
+    Matches any of the listed characters.
+
+  [^...]  negated character alternative
+    Matches any character *other* then those listed.
+
+  []...]  character alternative including `]'
+    Matches any of the listed characters, including `]'.
+
+  [^]...]  negated character alternative including `]'
+    Matches any character other than `]' and any others listed.
+
+  \\  quote literal
+    Causes the next element of the pattern sequence to be treated
+    literally; special characters lose their special meaning, for
+    anything else it has no effect.
+
+  (  start group
+    Starts a grouping construct.
+
+  )  end group
+    Ends a grouping construct.
+
+To include a `]' in a character alternative, place it immediately
+after the opening `[', or the opening `[^' in a negated character
+alternative. To include a `^' in a character alternative, negated
+or otherwise, place it anywhere other than immediately after the
+opening `['. To include a literal `\\' in the pattern, quote it
+with another `\\' (remember that `\\' also has to be quoted
+within elisp strings, so as a string this would be
+\"\\\\\\\\\"). The above syntax descriptions are written in terms
+of strings, but the special characters can be used in *any*
+sequence type. E.g. the character alternative \"[abc]\" would be
+\(?[ ?a ?b ?c ?]\) as a list, or [?[ ?a ?b ?c ?]] as a
+vector. The \"characters\" in the alternative can of course be
+any data type that might be stored in the trie, not just actual
+characters.
+
+Grouping constructs have no effect on which keys match the
+pattern, but data about which characters matched which group are
+included in the results. When groups are present, the car of a
+match result (as returned by a call to `trie-stack-pop') is no
+longer a straight key. Instead, it is a list whose first element
+is the matching key, and the remainder contains cons cells whose
+cars and cdrs give the start and end indices of the characters
+that matched the corresponding groups, in order.
+
+If PATTERN is a string, it must be possible to apply `string' to
+individual elements of the sequences stored in the trie. The
+matches returned in the alist will be sequences of the same type
+as KEY. (Support for lists of PATTERN's has not yet been
+implemented.)
+
+
+Efficiency concerns:
+
+Wildcard searches on tries are very efficient compared to similar
+searches on other data structures. The supported wildcard
+patterns are the subset of shell-glob patterns that can be
+searched efficiently. If you want a less limited pattern syntax,
+use `trie-regexp-stack' instead...but you'll have to implement it
+first!."
+  ;; convert trie from print-form if necessary
+  (trie-transform-from-read-warn trie)
+  ;; if stack functions aren't defined for trie type, throw error
+  (if (not (functionp (trie--stack-createfun trie)))
+      (error "Trie type does not support stack operations")
+    ;; otherwise, create and initialise a stack
+    (trie--wildcard-stack-create trie pattern reverse)))
+
+
+
+
+;;; ------------------------------------------------------------------
+;;;              Internal functions (do the real work)
+
+(defun trie--wildcard-parse-pattern (pattern &optional cmpfun)
+  ;; Extract first pattern element from PATTERN (a list), and return it consed
+  ;; with remainder of pattern. If CMPFUN is supplied, it is used to sort
+  ;; character alternatives.
+  (when pattern
+    (let ((el (pop pattern)))
+      (cond
+       ;; *: drop any following *'s
+       ((eq el ?*)
+	(while (eq (car pattern) ?*) (pop pattern)))
+
+       ;; [: gobble up to closing ]
+       ((eq el ?\[)
+	;; character alternatives are stored in lists
+	(setq el ())
+	(cond
+	 ;; gobble ] appearing straight after [
+	 ((eq (car pattern) ?\]) (push (pop pattern) el))
+	 ;; gobble ] appearing straight after [^
+	 ((and (eq (car pattern) ?^) (eq (nth 1 pattern) ?\]))
+	  (push (pop pattern) el)
+	  (push (pop pattern) el)))
+	;; gobble everything up to closing ]
+	(while (not (eq (car pattern) ?\]))
+	  (push (pop pattern) el)
+	  (unless pattern
+	    (error "Syntax error in trie wildcard pattern:\
+ missing \"]\"")))
+	(pop pattern)  ; dump closing ]
+	;; if CMPFUN was supplied, sort characters in alternative
+	(when cmpfun
+	  ;; leave final ^ at end in negated character alternative
+	  (if (eq (car (last el)) ?^)
+	      (setq el (concat (sort (butlast el) cmpfun) ?^))
+	    (setq el (sort el cmpfun)))))
+
+       ;; ?: nothing to gobble
+       ((eq el ??))
+
+       ;; ]: syntax error (always gobbled when parsing [)
+       ((eq el ?\])
+	(error "Syntax error in trie wildcard pattern:\
+ missing \"[\""))
+
+       ;; (: gobble any following ('s
+       ((eq el ?\()
+	(let ((i 1))
+	  (while (eq (car pattern) ?\()
+	    (incf i)
+	    (pop pattern))
+	  (setq el (cons ?\( i))))
+
+       ;; ): gobble any following )'s
+       ((eq el ?\))
+	(let ((i 1))
+	  (while (eq (car pattern) ?\))
+	    (incf i)
+	    (pop pattern))
+	  (setq el (cons ?\) i))))
+
+       ;; anything else, gobble up to first special character
+       (t
+	(push el pattern)
+	(setq el nil)
+	(while (and pattern
+		    (not (or (eq (car pattern) ?\[) (eq (car pattern) ?\])
+			     (eq (car pattern) ?*)  (eq (car pattern) ??)
+			     (eq (car pattern) ?\() (eq (car pattern) ?\)))))
+	  ;; \: dump \ and gobble next character
+	  (when (eq (car pattern) ?\\)
+	    (pop pattern)
+	    (unless pattern
+	      (error "Syntax error in trie wildcard pattern:\
+ missing character after \"\\\"")))
+	  (push (pop pattern) el))
+	;; fixed strings are stored in vectors
+	(setq el (vconcat (nreverse el)))))
+
+      ;; return cons containing first element and remaining pattern
+      (cons el pattern))))
+
+
+
+(defun trie--wildcard-construct-rankfun (trie pattern rankfun reverse)
+  ;; construct appropriate rank function for wildcard search, and return a
+  ;; list containing the rankfun and a flags indicating whether to expect
+  ;; duplicate results
+  (let (pattern-contains-groups
+	;; multiple patterns: need manual lexical sort and duplicate filtering
+	(manual-lexical-sort (> (length pattern) 1))
+	(expect-duplicate-results (> (length pattern) 1)))
+    ;; convert patterns to lists, and check for groups  ; and * wildcards
+    (setq pattern
+	  (mapcar
+	   (lambda (pat)
+	     ;; convert pattern to list
+	     (setq pat (append pat nil))
+;;; 	     (let ((pos (trie--position ?* pat)))
+;;; 	       ;; if pattern contains multiple *'s, have to filter out
+;;; 	       ;; duplicate results
+;;; 	       (setq expect-duplicate-results
+;;; 		     (or expect-duplicate-results
+;;; 			 (and pos (trie--position
+;;; 				   ?* (trie--subseq pat (1+ pos))))))
+;;; 	       ;; if *'s appear in middle of pattern (other than any group
+;;; 	       ;; endings at very end), need to sort manually
+;;; 	       (setq manual-lexical-sort
+;;; 		     (or manual-lexical-sort
+;;; 			 (and pos
+;;; 			      (catch 'not-group-end
+;;; 				(dolist (c (last pat (- (length pat) pos 1)))
+;;; 				  (unless (eq c ?\))
+;;; 				    (throw 'not-group-end t)))
+;;; 				nil)))))
+	     ;; check if pattern contains groups
+	     (setq pattern-contains-groups
+		   (or pattern-contains-groups (trie--position ?\( pat)))
+	     ;; return pattern as list
+	     pat)
+	   pattern))
+
+    ;; construct appropriate rankfun
+    (cond
+     ((and rankfun pattern-contains-groups)
+      (setq rankfun
+	    `(lambda (a b)
+	       ;; if car of argument contains a key+group list rather than
+	       ;; a straight key, remove group list
+	       ;; FIXME: the test for straight key, below, will fail if the
+	       ;;        key is a list, and the first element of the key is
+	       ;;        itself a list (there might be no easy way to fully
+	       ;;        fix this...)
+	       (unless (or (atom (car a))
+			   (and (listp (car a)) (not (sequencep (caar a)))))
+		 (setq a (cons (caar a) (cdr a))))
+	       (unless (or (atom (car b))
+			   (and (listp (car b)) (not (sequencep (caar b)))))
+		 (setq b (cons (caar b) (cdr b))))
+	       ;; call rankfun on massaged arguments
+	       (,rankfun a b))))
+
+     ((and (null rankfun) manual-lexical-sort (not pattern-contains-groups))
+      (setq rankfun
+	    `(lambda (a b)
+	       ;; call lexical rank function on keys
+	       (,(trie-construct-sortfun
+		  (trie--comparison-function trie)
+		  reverse)
+		(car a) (car b)))))
+
+     ((and (null rankfun) manual-lexical-sort pattern-contains-groups)
+      (setq rankfun
+	    `(lambda (a b)
+	       ;; extract key from argument, (car of arg if no group data
+	       ;; attached to key, otherwise first element of key+group list
+	       ;; in car)
+	       ;; FIXME: the test for straight key, below, will fail if the
+	       ;;        key is a list, and the first element of the key is
+	       ;;        itself a list (there might be no easy way to fully
+	       ;;        fix this...)
+	       (if (and (listp (car a)) (not (sequencep (caar a))))
+		   (setq a (car a))
+		 (setq a (caar a)))
+	       (if (and (listp (car b)) (not (sequencep (caar b))))
+		   (setq b (car b))
+		 (setq b (caar b)))
+	       ;; call lexical rank function on extracted keys
+	       (,(trie-construct-sortfun
+		  (trie--comparison-function trie)
+		  reverse)
+		a b)))))
+
+    ;; return rankfun and duplicate results flag
+    (list rankfun expect-duplicate-results)))
 
 
 
@@ -1756,7 +2055,8 @@ wildcards will be particularly slow."
 		 (pat pattern))
 	     (while pat
 	       (if (null grp-stack)
-		   (error "Syntax error in trie wildcard pattern: missing \"(\"")
+		   (error "Syntax error in trie wildcard pattern:\
+ missing \"(\"")
 		 (push (cons (pop grp-stack) (length seq)) grps)
 		 (setq pat (cdr pat))))
 	     (unless (null grp-stack)
@@ -1770,26 +2070,31 @@ wildcards will be particularly slow."
 	 mapfun node seq  ;; trie--mapc arguments
 	 (if maxnum reverse (not reverse))))
 
-       ;; * wildcard: map over all nodes immediately below current one, with
-       ;;             and without using up the *
+       ;; non-terminal *: not supported for efficiency reasons
        ((trie--wildcard-*-p el)
-	(funcall mapfun
-		 (lambda (node)
-		   ;; skip data nodes (terminal * dealt with above)
-		   (unless (trie--node-data-p node)
-		     ;; using up *
-		     (trie--do-wildcard-search
-		      node (trie--seq-append seq (trie--node-split node))
-		      pattern rankfun maxnum reverse
-		      (1+ idx) group-stack groups
-		      comparison-function lookupfun mapfun)
-		     ;; not using up *
-		     (trie--do-wildcard-search
-		      node (trie--seq-append seq (trie--node-split node))
-		      (cons ?* pattern) rankfun maxnum reverse
-		      (1+ idx) group-stack groups
-		      comparison-function lookupfun mapfun)))
-		 (trie--node-subtree node)))
+	  (error "Syntax error in trie wildcard pattern:\
+non-terminal * wildcards are not supported"))
+
+;;;        ;; * wildcard: map over all nodes immediately below current one, with
+;;;        ;;             and without using up the *
+;;;        ((trie--wildcard-*-p el)
+;;; 	(funcall mapfun
+;;; 		 (lambda (node)
+;;; 		   ;; skip data nodes (terminal * dealt with above)
+;;; 		   (unless (trie--node-data-p node)
+;;; 		     ;; using up *
+;;; 		     (trie--do-wildcard-search
+;;; 		      node (trie--seq-append seq (trie--node-split node))
+;;; 		      pattern rankfun maxnum reverse
+;;; 		      (1+ idx) group-stack groups
+;;; 		      comparison-function lookupfun mapfun)
+;;; 		     ;; not using up *
+;;; 		     (trie--do-wildcard-search
+;;; 		      node (trie--seq-append seq (trie--node-split node))
+;;; 		      (cons ?* pattern) rankfun maxnum reverse
+;;; 		      (1+ idx) group-stack groups
+;;; 		      comparison-function lookupfun mapfun)))
+;;; 		 (trie--node-subtree node)))
 
        ;; ? wildcard: map over all child nodes
        ((trie--wildcard-?-p el)
@@ -1851,101 +2156,9 @@ wildcards will be particularly slow."
 
 
 
-(defun trie-wildcard-stack (trie pattern &optional reverse)
-  "Return an object that allows matches to PATTERN to be accessed
-as if they were a stack.
 
-The stack is sorted in \"lexical\" order, i.e. the order defined
-by TRIE's comparison function, or in reverse order if REVERSE is
-non-nil. Calling `trie-stack-pop' pops the top element (a cons
-cell containing a key and its associated data) from the stack.
-
-PATTERN must be a sequence (vector, list or string) containing
-either elements of the type used to reference data in the trie,
-or any the characters `*', `?', `[', `]', `^' or `\\'. The
-meaning and syntax of these special characters follows shell-glob
-syntax, with one major restriction on the `*' wildcard:
-
-  *  wildcard
-    Matches zero or more characters. May *only* appear at the end
-    of the pattern.
-
-  ?  wildcard
-    Matches any single character.
-
-  [...]  character alternative
-    Matches any of the listed characters.
-
-  [^...]  negated character alternative
-    Matches any character *other* then those listed.
-
-  []...]  character alternative including `]'
-    Matches any of the listed characters, including `]'.
-
-  [^]...]  negated character alternative including `]'
-    Matches any character other than `]' and any others listed.
-
-  \\  quote literal
-    Causes the next element of the pattern sequence to be treated
-    literally; special characters lose their special meaning, for
-    anything else it has no effect.
-
-  (  start group
-    Starts a grouping construct.
-
-  )  end group
-    Ends a grouping construct.
-
-To include a `]' in a character alternative, place it immediately
-after the opening `[', or the opening `[^' in a negated character
-alternative. To include a `^' in a character alternative, negated
-or otherwise, place it anywhere other than immediately after the
-opening `['. To include a literal `\\' in the pattern, quote it
-with another `\\' (remember that `\\' also has to be quoted
-within elisp strings, so as a string this would be
-\"\\\\\\\\\"). The above syntax descriptions are written in terms
-of strings, but the special characters can be used in *any*
-sequence type. E.g. the character alternative \"[abc]\" would be
-\(?[ ?a ?b ?c ?]\) as a list, or [?[ ?a ?b ?c ?]] as a
-vector. The \"characters\" in the alternative can of course be
-any data type that might be stored in the trie, not just actual
-characters.
-
-Grouping constructs have no effect on which keys match the
-pattern, but data about which characters of each match matched
-which group are included in the results. When groups are present,
-the car of a match result (as returned by a call to
-`trie-stack-pop') is no longer a straight key. Instead, it is a
-list whose first element is the matching key, and the remainder
-contains cons cells whose cars and cdrs give the start and end
-indices of the characters that matched the corresponding groups,
-in order.
-
-If PATTERN is a string, it must be possible to apply `string' to
-individual elements of the sequences stored in the trie. The
-matches returned in the alist will be sequences of the same type
-as KEY.
-
-
-Efficiency concerns:
-
-Wildcard searches on tries are very efficient compared to similar
-searches on other data structures. Due to the restrictions on the
-`*' wildcard, there is no significant difference between the
-efficiency of all legitimate patterns."
-  ;; convert trie from print-form if necessary
-  (trie-transform-from-read-warn trie)
-  ;; if stack functions aren't defined for trie type, throw error
-  (if (not (functionp (trie--stack-createfun trie)))
-      (error "Trie type does not support stack operations")
-    ;; otherwise, create and initialise a stack
-    (trie--wildcard-stack-create trie pattern reverse)))
-
-
-
-
-
-;; FIXME: using defstruct causes *very* weird bugs...why?!?!?!!!
+;; FIXME: using a defstruct instead of these macros causes *very* weird
+;;        bugs...why?!?!?!!!
 (defmacro trie--wildcard-stack-el-create (seq pattern node
 					      idx group-stack groups)
   `(vector ,seq ,pattern ,node ,idx ,group-stack ,groups))
@@ -2090,8 +2303,7 @@ efficiency of all legitimate patterns."
 		 (dolist (el (cdr pattern))
 		   (unless (eq el ?\)) (throw 'not-group nil)))
 		 t))
-	  ;; if we're starting a new * wildcard, push a node stack onto the
-	  ;; stack
+	  ;; if starting a new * wildcard, push a node stack onto the stack
 	  (if (trie--node-p node)
 	      (push (trie--wildcard-stack-el-create
 		     seq pattern
@@ -2151,10 +2363,10 @@ efficiency of all legitimate patterns."
 			(trie--node-data node)) store)
 	    (throw 'done store)))
 
-	 ;; non-terminal *: not currently supported
+	 ;; non-terminal *: not supported for efficiency reasons
 	 ((trie--wildcard-*-p (car pattern))
-	  (error "Non-terminal * wildcards are not currently supported by\
- trie-wildcard-stack's"))
+	  (error "Syntax error in trie wildcard pattern:\
+non-terminal * wildcards are not supported"))
 
 	 ;; ? wildcard: push wildcard node stack onto stack and repopulate
 	 ;;             again
@@ -2257,180 +2469,6 @@ efficiency of all legitimate patterns."
 
 	)))  ; end of infinite loop and catches
   store)  ; return repopulated store
-
-
-
-(defun trie--wildcard-construct-rankfun (trie pattern rankfun reverse)
-  ;; construct appropriate rank function for wildcard search, and return a
-  ;; list containing the rankfun and a flags indicating whether to expect
-  ;; duplicate results
-  (let (pattern-contains-groups
-	manual-lexical-sort
-	expect-duplicate-results)
-    ;; convert patterns to lists, and check for * wildcards and groups
-    (setq pattern
-	  (mapcar
-	   (lambda (pat)
-	     ;; convert pattern to list
-	     (setq pat (append pat nil))
-	     (let ((pos (trie--position ?* pat)))
-	       ;; if pattern contains multiple *'s, have to filter out
-	       ;; duplicate results
-	       (setq expect-duplicate-results
-		     (or expect-duplicate-results
-			 (and pos (trie--position
-				   ?* (trie--subseq pat (1+ pos))))))
-	       ;; if *'s appear in middle of pattern (other than any group
-	       ;; endings at very end), need to sort manually
-	       (setq manual-lexical-sort
-		     (or manual-lexical-sort
-			 (and pos
-			      (catch 'not-group-end
-				(dolist (c (last pat (- (length pat) pos 1)))
-				  (unless (eq c ?\))
-				    (throw 'not-group-end t)))
-				nil)))))
-	     ;; check if pattern contains groups
-	     (setq pattern-contains-groups
-		   (or pattern-contains-groups (trie--position ?\( pat)))
-	     ;; return pattern as list
-	     pat)
-	   pattern))
-
-    ;; construct appropriate rankfun
-    (cond
-     ((and rankfun pattern-contains-groups)
-      (setq rankfun
-	    `(lambda (a b)
-	       ;; if car of argument contains a key+group list rather than
-	       ;; a straight key, remove group list
-	       ;; FIXME: the test for straight key, below, will fail if the
-	       ;;        key is a list, and the first element of the key is
-	       ;;        itself a list (there might be no easy way to fully
-	       ;;        fix this...)
-	       (unless (and (listp (car a)) (not (sequencep (caar a))))
-		 (setq a (cons (caar a) (cdr a))))
-	       (unless (and (listp (car b)) (not (sequencep (caar b))))
-		 (setq b (cons (caar b) (cdr b))))
-	       ;; call rankfun on massaged arguments
-	       (,rankfun a b))))
-
-     ((and (null rankfun) manual-lexical-sort (not pattern-contains-groups))
-      (setq rankfun
-	    `(lambda (a b)
-	       ;; call lexical rank function on keys
-	       (,(trie-construct-sortfun
-		  (trie--comparison-function trie)
-		  reverse)
-		(car a) (car b)))))
-
-     ((and (null rankfun) manual-lexical-sort pattern-contains-groups)
-      (setq rankfun
-	    `(lambda (a b)
-	       ;; extract key from argument, (car of arg if no group data
-	       ;; attached to key, otherwise first element of key+group list
-	       ;; in car)
-	       ;; FIXME: the test for straight key, below, will fail if the
-	       ;;        key is a list, and the first element of the key is
-	       ;;        itself a list (there might be no easy way to fully
-	       ;;        fix this...)
-	       (if (and (listp (car a)) (not (sequencep (caar a))))
-		   (setq a (car a))
-		 (setq a (caar a)))
-	       (if (and (listp (car b)) (not (sequencep (caar b))))
-		   (setq b (car b))
-		 (setq b (caar b)))
-	       ;; call lexical rank function on extracted keys
-	       (,(trie-construct-sortfun
-		  (trie--comparison-function trie)
-		  reverse)
-		a b)))))
-
-    ;; return rankfun and duplicate results flag
-    (list rankfun expect-duplicate-results)))
-
-
-
-(defun trie--wildcard-parse-pattern (pattern &optional cmpfun)
-  ;; Extract first pattern element from PATTERN (a list), and return it consed
-  ;; with remainder of pattern. If CMPFUN is supplied, it is used to sort
-  ;; character alternatives.
-  (when pattern
-    (let ((el (pop pattern)))
-      (cond
-       ;; *: drop any following *'s
-       ((eq el ?*)
-	(while (eq (car pattern) ?*) (pop pattern)))
-
-       ;; [: gobble up to closing ]
-       ((eq el ?\[)
-	;; character alternatives are stored in lists
-	(setq el ())
-	(cond
-	 ;; gobble ] appearing straight after [
-	 ((eq (car pattern) ?\]) (push (pop pattern) el))
-	 ;; gobble ] appearing straight after [^
-	 ((and (eq (car pattern) ?^) (eq (nth 1 pattern) ?\]))
-	  (push (pop pattern) el)
-	  (push (pop pattern) el)))
-	;; gobble everything up to closing ]
-	(while (not (eq (car pattern) ?\]))
-	  (push (pop pattern) el)
-	  (unless pattern
-	    (error "Syntax error in trie wildcard pattern:\
- missing \"]\"")))
-	(pop pattern)  ; dump closing ]
-	;; if CMPFUN was supplied, sort characters in alternative
-	(when cmpfun
-	  ;; leave final ^ at end in negated character alternative
-	  (if (eq (car (last el)) ?^)
-	      (setq el (concat (sort (butlast el) cmpfun) ?^))
-	    (setq el (sort el cmpfun)))))
-
-       ;; ?: nothing to gobble
-       ((eq el ??))
-
-       ;; ]: syntax error (always gobbled when parsing [)
-       ((eq el ?\])
-	(error "Syntax error in trie wildcard pattern:\
- missing \"[\""))
-
-       ;; (: gobble any following ('s
-       ((eq el ?\()
-	(let ((i 1))
-	  (while (eq (car pattern) ?\()
-	    (incf i)
-	    (pop pattern))
-	  (setq el (cons ?\( i))))
-
-       ;; ): gobble any following )'s
-       ((eq el ?\))
-	(let ((i 1))
-	  (while (eq (car pattern) ?\))
-	    (incf i)
-	    (pop pattern))
-	  (setq el (cons ?\) i))))
-
-       ;; anything else, gobble up to first special character
-       (t
-	(push el pattern)
-	(setq el nil)
-	(while (and pattern
-		    (not (or (eq (car pattern) ?\[) (eq (car pattern) ?\])
-			     (eq (car pattern) ?*)  (eq (car pattern) ??)
-			     (eq (car pattern) ?\() (eq (car pattern) ?\)))))
-	  ;; \: dump \ and gobble next character
-	  (when (eq (car pattern) ?\\)
-	    (pop pattern)
-	    (unless pattern
-	      (error "Syntax error in trie wildcard pattern:\
- missing character after \"\\\"")))
-	  (push (pop pattern) el))
-	;; fixed strings are stored in vectors
-	(setq el (vconcat (nreverse el)))))
-
-      ;; return cons containing first element and remaining pattern
-      (cons el pattern))))
 
 
 
