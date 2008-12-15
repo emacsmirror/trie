@@ -1524,9 +1524,67 @@ it is better to use one of those instead."
 (defun trie-wildcard-match (pattern sequence cmpfun)
   "Return t if wildcard PATTERN matches SEQ, nil otherwise.
 CMPFUN is used as the comparison function for comparing elements
-of the sequence against the pattern."
+of the sequence against the pattern.
+
+PATTERN must be a sequence (vector, list or string) containing
+either elements of the type used to reference data in the trie,
+or any of the characters `*', `?', `[', `]', `(', `)', `^' or
+`\\'. The meaning and syntax of these special characters follows
+shell-glob syntax:
+
+  *  wildcard
+    Matches zero or more characters. May *only* appear at the end
+    of the pattern.
+
+  ?  wildcard
+    Matches any single character.
+
+  [...]  character alternative
+    Matches any of the listed characters.
+
+  [^...]  negated character alternative
+    Matches any character *other* then those listed.
+
+  []...]  character alternative including `]'
+    Matches any of the listed characters, including `]'.
+
+  [^]...]  negated character alternative including `]'
+    Matches any character other than `]' and any others listed.
+
+  \\  quote literal
+    Causes the next element of the pattern sequence to be treated
+    literally; special characters lose their special meaning, for
+    anything else it has no effect.
+
+  (  start group
+    Starts a grouping construct.
+
+  )  end group
+    Ends a grouping construct.
+
+To include a `]' in a character alternative, place it immediately
+after the opening `[', or the opening `[^' in a negated character
+alternative. To include a `^' in a character alternative, negated
+or otherwise, place it anywhere other than immediately after the
+opening `['. To include a literal `\\' in the pattern, quote it
+with another `\\' (remember that `\\' also has to be quoted
+within elisp strings, so as a string this would be
+\"\\\\\\\\\"). The above syntax descriptions are written in terms
+of strings, but the special characters can be used in *any*
+sequence type. E.g. the character alternative \"[abc]\" would be
+\(?[ ?a ?b ?c ?]\) as a list, or [?[ ?a ?b ?c ?]] as a
+vector. The \"characters\" in the alternative can of course be
+any data type that might be stored in the trie, not just actual
+characters.
+
+Grouping constructs have no effect on which SEQUENCE's match the
+PATTERN, but data about which elements matched which group are
+included in the results. When groups are present, the return
+result for a match is a list containing cons cells whose cars and
+cdrs give the start and end indices of the elements that matched
+the corresponding groups, in order."
   (let ((pat (append pattern nil))  ; convert pattern to list
-	el)
+	el (idx 0) group-stack groups)
     (catch 'match
 
       ;; parse pattern
@@ -1536,9 +1594,17 @@ of the sequence against the pattern."
 	      pat (cdr pat))
 	(cond
 
-	 ;; group (): ignore
-	 ((or (trie--wildcard-group-start-p el)
-	      (trie--wildcard-group-end-p el)))
+	 ;; start group (: add current character index to pending groups
+	 ((trie--wildcard-group-start-p el)
+	  (dotimes (i (trie--wildcard-group-count el))
+	    (push idx group-stack)))
+
+	 ;; end group ): add current character index to pending groups
+	 ((trie--wildcard-group-end-p el)
+	  (dotimes (i (trie--wildcard-group-count el))
+	    (if (null group-stack)
+		(error "Syntax error in trie wildcard pattern: missing \"(\"")
+	      (push (cons (pop group-stack) idx) groups))))
 
 	 ;; literal string: compare elements
 	 ((trie--wildcard-literal-p el)
@@ -1552,11 +1618,13 @@ of the sequence against the pattern."
 	    (when (or (funcall cmpfun (elt sequence i) (aref el i))
 		      (funcall cmpfun (aref el i) (elt sequence i)))
 	      (throw 'match nil)))
-	  (setq sequence (trie--subseq sequence (length el))))
+	  (setq sequence (trie--subseq sequence (length el))
+		idx (+ idx (length el))))
 
 	 ;; ? wildcard: accept anything
 	 ((trie--wildcard-?-p el)
-	  (setq sequence (trie--subseq sequence 1)))
+	  (setq sequence (trie--subseq sequence 1)
+		idx (1+ idx)))
 
 	 ;; character alternative: check next element matches
 	 ((trie--wildcard-char-alt-p el)
@@ -1565,7 +1633,8 @@ of the sequence against the pattern."
 			  (funcall cmpfun (car el) (elt sequence 0))))
 	    (setq el (cdr el)))
 	  (if el
-	      (setq sequence (trie--subseq sequence 1))
+	      (setq sequence (trie--subseq sequence 1)
+		    idx (1+ idx))
 	    (throw 'match nil)))
 
 	 ;; negated character alternative: check next element isn't excluded
@@ -1573,18 +1642,36 @@ of the sequence against the pattern."
 	  (dolist (c (butlast el))  ; drop final ^
 	    (unless (or (funcall cmpfun (elt sequence 0) c)
 			(funcall cmpfun c (elt sequence 0)))
-	      (throw 'match nil))))
+	      (throw 'match nil))
+	    (setq idx (1+ idx))))
 
 	 ;; terminal * and possibly ): Houston, we have a match!
 	 ((and (trie--wildcard-*-p el)
 	       (catch 'not-group
-		 (dolist (el pattern)
+		 (dolist (el pat)
 		   (unless (eq el ?\)) (throw 'not-group nil)))
 		 t))
-	  (throw 'match t))
+	  (setq idx (+ idx (length sequence)))
+	  ;; if we have groups, complete them
+	  (when pat
+	    (while pat
+	      (if (null group-stack)
+		  (error "Syntax error in trie wildcard pattern:\
+ missing \"(\"")
+		(push (cons (pop group-stack) idx) groups)
+		(setq pat (cdr pat))))
+	    (unless (null group-stack)
+	      (error "Syntax error in trie wildcard pattern: missing \")\""))
+	    (setq groups
+		  (sort groups
+			(lambda (a b)
+			  (or (< (car a) (car b))
+			      (and (= (car a) (car b))
+				   (> (cdr a) (cdr b))))))))
+	  (throw 'match (or groups t)))
 
-       ;; non-terminal *: not supported for efficiency reasons
-       ((trie--wildcard-*-p el)
+	 ;; non-terminal *: not supported for efficiency reasons
+	 ((trie--wildcard-*-p el)
 	  (error "Syntax error in trie wildcard pattern:\
 non-terminal * wildcards are not supported"))
 
@@ -1597,11 +1684,12 @@ non-terminal * wildcards are not supported"))
 ;;; 		     (and pat (trie-wildcard-match pat sequence cmpfun))
 ;;; 		     (trie-wildcard-match pattern sequence cmpfun))))
 	 )
+
 	;; store unparsed pattern for next iteration
 	(setq pattern pat))
 
       ;; if we got to the end of PATTERN, SEQUENCE matched
-      (if (or pat (> (length sequence) 0)) nil t)
+      (if (or pat (> (length sequence) 0)) nil (or groups t))
       )))
 
 
@@ -1617,9 +1705,9 @@ completions are found.
 
 PATTERN must be a sequence (vector, list or string) containing
 either elements of the type used to reference data in the trie,
-or any the characters `*', `?', `[', `]', `^' or `\\'. The
-meaning and syntax of these special characters follows shell-glob
-syntax:
+or any of the characters `*', `?', `[', `]', `(', `)', `^' or
+`\\'. The meaning and syntax of these special characters follows
+shell-glob syntax:
 
   *  wildcard
     Matches zero or more characters. May *only* appear at the end
@@ -1667,12 +1755,12 @@ any data type that might be stored in the trie, not just actual
 characters.
 
 Grouping constructs have no effect on which keys match the
-pattern, but data about which characters matched which group are
-included in the results. When groups are present, the car of an
-element in the results alist is no longer a straight
+pattern, but data about which sequence elements matched which
+group are included in the results. When groups are present, the
+car of an element in the results alist is no longer a straight
 key. Instead, it is a list whose first element is the matching
 key, and the remainder contains cons cells whose cars and cdrs
-give the start and end indices of the characters that matched the
+give the start and end indices of the elements that matched the
 corresponding groups, in order.
 
 If PATTERN is a string, it must be possible to apply `string' to
@@ -1768,9 +1856,9 @@ cell containing a key and its associated data) from the stack.
 
 PATTERN must be a sequence (vector, list or string) containing
 either elements of the type used to reference data in the trie,
-or any the characters `*', `?', `[', `]', `^' or `\\'. The
-meaning and syntax of these special characters follows shell-glob
-syntax, with one major restriction on the `*' wildcard:
+or any of the characters `*', `?', `[', `]', `(', `)', `^' or
+`\\'. The meaning and syntax of these special characters follows
+shell-glob syntax:
 
   *  wildcard
     Matches zero or more characters. May *only* appear at the end
@@ -1818,13 +1906,13 @@ any data type that might be stored in the trie, not just actual
 characters.
 
 Grouping constructs have no effect on which keys match the
-pattern, but data about which characters matched which group are
-included in the results. When groups are present, the car of a
-match result (as returned by a call to `trie-stack-pop') is no
-longer a straight key. Instead, it is a list whose first element
-is the matching key, and the remainder contains cons cells whose
-cars and cdrs give the start and end indices of the characters
-that matched the corresponding groups, in order.
+pattern, but data about which sequence elements matched which
+group are included in the results. When groups are present, the
+car of a match result (as returned by a call to `trie-stack-pop')
+is no longer a straight key. Instead, it is a list whose first
+element is the matching key, and the remainder contains cons
+cells whose cars and cdrs give the start and end indices of the
+elements that matched the corresponding groups, in order.
 
 If PATTERN is a string, it must be possible to apply `string' to
 individual elements of the sequences stored in the trie. The
