@@ -1173,10 +1173,21 @@ from the stack. Returns nil if the stack is empty."
 ;; highly non-trivial. (I haven't done any benchmarking, though, so feel free
 ;; to do so and let me know the results!)
 
-(defmacro trie--construct-accumulator (maxnum filter)
+(defmacro trie--construct-accumulator (maxnum filter resultfun)
   ;; Does what it says on the tin! | sed -e 's/on/in/' -e 's/tin/macro name/'
   `(cond
-    ((and ,filter ,maxnum)
+    ;; filter, maxnum, resultfun
+    ((and ,filter ,maxnum ,resultfun)
+     (lambda (node seq)
+       (let ((data (trie--node-data node)))
+	 (when (funcall ,filter seq data)
+	   (aset trie--accumulate 0
+		 (cons (funcall ,resultfun seq data)
+		       (aref trie--accumulate 0)))
+	   (and (>= (length (aref trie--accumulate 0)) ,maxnum)
+		(throw 'trie-complete--done nil))))))
+    ;; filter, maxnum, !resultfun
+    ((and ,filter ,maxnum (not ,resultfun))
      (lambda (node seq)
        (let ((data (trie--node-data node)))
 	 (when (funcall ,filter seq data)
@@ -1185,7 +1196,33 @@ from the stack. Returns nil if the stack is empty."
 		       (aref trie--accumulate 0)))
 	   (and (>= (length (aref trie--accumulate 0)) ,maxnum)
 		(throw 'trie-complete--done nil))))))
-    ((and (not ,filter) ,maxnum)
+    ;; filter, !maxnum, resultfun
+    ((and ,filter (not ,maxnum) ,resultfun)
+     (lambda (node seq)
+       (let ((data (trie--node-data node)))
+	 (when (funcall ,filter seq data)
+	   (aset trie--accumulate 0
+		 (cons (funcall ,resultfun seq data)
+		       (aref trie--accumulate 0)))))))
+    ;; filter, !maxnum, !resultfun
+    ((and ,filter (not ,maxnum) (not ,resultfun))
+     (lambda (node seq)
+       (let ((data (trie--node-data node)))
+	 (when (funcall ,filter seq data)
+	   (aset trie--accumulate 0
+		 (cons (cons seq data)
+		       (aref trie--accumulate 0)))))))
+    ;; !filter, maxnum, resultfun
+    ((and (not ,filter) ,maxnum ,resultfun)
+     (lambda (node seq)
+       (let ((data (trie--node-data node)))
+	 (aset trie--accumulate 0
+	       (cons (funcall ,resultfun seq data)
+		     (aref trie--accumulate 0)))
+	 (and (>= (length (aref trie--accumulate 0)) ,maxnum)
+	      (throw 'trie-complete--done nil)))))
+    ;; !filter, maxnum, !resultfun
+    ((and (not ,filter) ,maxnum (not ,resultfun))
      (lambda (node seq)
        (let ((data (trie--node-data node)))
 	 (aset trie--accumulate 0
@@ -1193,24 +1230,28 @@ from the stack. Returns nil if the stack is empty."
 		     (aref trie--accumulate 0)))
 	 (and (>= (length (aref trie--accumulate 0)) ,maxnum)
 	      (throw 'trie-complete--done nil)))))
-    ((and ,filter (not ,maxnum))
+    ;; !filter, !maxnum, resultfun
+    ((and (not ,filter) (not ,maxnum) ,resultfun)
      (lambda (node seq)
        (let ((data (trie--node-data node)))
-	 (when (funcall ,filter seq data)
-	   (aset trie--accumulate 0
-		 (cons (cons seq data)
-		       (aref trie--accumulate 0)))))))
-    ((and (not ,filter) (not ,maxnum))
+	 (aset trie--accumulate 0
+	       (cons (funcall ,resultfun seq data)
+		     (aref trie--accumulate 0))))))
+    ;; !filter, !maxnum, !resultfun
+    ((and (not ,filter) (not ,maxnum) (not ,resultfun))
      (lambda (node seq)
        (let ((data (trie--node-data node)))
 	 (aset trie--accumulate 0
 	       (cons (cons seq data)
-		     (aref trie--accumulate 0))))))))
+		     (aref trie--accumulate 0))))))
+    ))
+
 
 
 (defmacro trie--construct-ranked-accumulator (maxnum filter)
   ;; Does what it says on the tin! | sed -e 's/on/in/' -e 's/tin/macro name/'
   `(cond
+    ;; filter, maxnum
     ((and ,filter ,maxnum)
      (lambda (node seq)
        (let ((data (trie--node-data node)))
@@ -1218,17 +1259,20 @@ from the stack. Returns nil if the stack is empty."
 	   (heap-add trie--accumulate (cons seq data))
 	   (and (> (heap-size trie--accumulate) ,maxnum)
 		(heap-delete-root trie--accumulate))))))
+    ;; filter, !maxnum
     ((and ,filter (not ,maxnum))
      (lambda (node seq)
        (let ((data (trie--node-data node)))
 	 (when (funcall ,filter seq data)
 	   (heap-add trie--accumulate (cons seq data))))))
+    ;; !filter, maxnum
     ((and (not ,filter) ,maxnum)
      (lambda (node seq)
        (let ((data (trie--node-data node)))
 	 (heap-add trie--accumulate (cons seq data))
 	 (and (> (heap-size trie--accumulate) ,maxnum)
 	      (heap-delete-root trie--accumulate)))))
+    ;; !filter, !maxnum
     ((and (not ,filter) (not ,maxnum))
      (lambda (node seq)
        (let ((data (trie--node-data node)))
@@ -1237,7 +1281,7 @@ from the stack. Returns nil if the stack is empty."
 
 
 (defmacro trie--accumulate-results
-  (rankfun maxnum reverse filter accfun duplicates &rest body)
+  (rankfun maxnum reverse filter resultfun accfun duplicates &rest body)
   ;; Accumulate results of running BODY code, and return them in appropriate
   ;; order. BODY should call ACCFUN to accumulate a result, passing it two
   ;; arguments: a trie data node, and the corresponding sequence. BODY can
@@ -1247,8 +1291,10 @@ from the stack. Returns nil if the stack is empty."
   ;; is ignored if RANKFUN is null. The other arguments should be passed
   ;; straight through from the query function.
 
-  ;; rename RANKFUN to help avoid dynamic-scoping bugs
+  ;; rename functions to help avoid dynamic-scoping bugs
   `(let* ((--trie-accumulate--rankfun ,rankfun)
+	  (--trie-accumulate--filter ,filter)
+	  (--trie-accumulate--resultfun ,resultfun)
 	  ;; construct structure in which to accumulate results
 	  (trie--accumulate
 	   (if ,rankfun
@@ -1263,8 +1309,11 @@ from the stack. Returns nil if the stack is empty."
 	  ;; construct function to accumulate completions
 	  (,accfun
 	   (if ,rankfun
-	       (trie--construct-ranked-accumulator ,maxnum ,filter)
-	     (trie--construct-accumulator ,maxnum ,filter))))
+	       (trie--construct-ranked-accumulator
+		,maxnum --trie-accumulate--filter)
+	     (trie--construct-accumulator
+	      ,maxnum --trie-accumulate--filter
+	      --trie-accumulate--resultfun))))
 
      ;; accumulate results
      (catch 'trie-complete--done ,@body)
@@ -1283,7 +1332,11 @@ from the stack. Returns nil if the stack is empty."
 		 (push (heap-delete-root trie--accumulate) completions)))
 	   ;; skip duplicate checking if flag is not set
 	   (while (not (heap-empty trie--accumulate))
-	     (push (heap-delete-root trie--accumulate) completions)))
+	     (if ,resultfun
+		 (let ((res (heap-delete-root trie--accumulate)))
+		   (push (funcall ,resultfun (car res) (cdr res))
+			 completions))
+	       (push (heap-delete-root trie--accumulate) completions))))
 	 completions))
 
       ;; for lexical query, reverse result list if MAXNUM supplied
@@ -1297,13 +1350,14 @@ from the stack. Returns nil if the stack is empty."
 ;; ================================================================
 ;;                          Completing
 
-(defun trie-complete (trie prefix &optional rankfun maxnum reverse filter)
+(defun trie-complete
+  (trie prefix &optional rankfun maxnum reverse filter resultfun)
   "Return an alist containing all completions of PREFIX in TRIE
 along with their associated data, in the order defined by
 RANKFUN, defaulting to \"lexical\" order (i.e. the order defined
 by the trie's comparison function). If REVERSE is non-nil, the
-completions are sorted in the reverse order. If no completions
-are found, return nil.
+completions are sorted in the reverse order. Returns nil if no
+completions are found.
 
 PREFIX must be a sequence (vector, list or string) containing
 elements of the type used to reference data in the trie. (If
@@ -1328,7 +1382,13 @@ The FILTER argument sets a filter function for the
 completions. If supplied, it is called for each possible
 completion with two arguments: the completion, and its associated
 data. If the filter function returns nil, the completion is not
-included in the results, and does not count towards MAXNUM."
+included in the results, and does not count towards MAXNUM.
+
+RESULTFUN defines a function used to process results before
+adding them to the final result list. If specified, it should
+accept two arguments: a key and its associated data. It's return
+value is what gets added to the final result list, instead of the
+default key-data cons cell."
 
   ;; convert trie from print-form if necessary
   (trie-transform-from-read-warn trie)
@@ -1348,7 +1408,7 @@ included in the results, and does not count towards MAXNUM."
   ;; accumulate completions
   (let (node)
     (trie--accumulate-results
-     rankfun maxnum reverse filter accumulator nil
+     rankfun maxnum reverse filter resultfun accumulator nil
      (mapc (lambda (pfx)
 	     (setq node (trie--node-find (trie--root trie) pfx
 					 (trie--lookupfun trie)))
@@ -1546,8 +1606,8 @@ non-terminal * wildcards are not supported"))
 
 
 
-(defun trie-wildcard-search (trie pattern
-				  &optional rankfun maxnum reverse filter)
+(defun trie-wildcard-search
+  (trie pattern &optional rankfun maxnum reverse filter resultfun)
   "Return an alist containing all matches for PATTERN in TRIE
 along with their associated data, in the order defined by
 RANKFUN, defaulting to \"lexical\" order (i.e. the order defined
@@ -1637,6 +1697,12 @@ arguments: the matching key, and its associated data. If the
 filter function returns nil, the match is not included in the
 results, and does not count towards MAXNUM.
 
+RESULTFUN defines a function used to process results before
+adding them to the final result list. If specified, it should
+accept two arguments: a key and its associated data. It's return
+value is what gets added to the final result list, instead of the
+default key-data cons cell.
+
 
 Efficiency concerns:
 
@@ -1676,7 +1742,8 @@ first!."
       ;; accumulate pattern matches
       (declare (special accumulator))
       (trie--accumulate-results
-       rankfun maxnum reverse filter accumulator expect-duplicate-results
+       rankfun maxnum reverse filter resultfun
+       accumulator expect-duplicate-results
        (mapc (lambda (pat)
 	       (trie--do-wildcard-search
 		(trie--root trie)
