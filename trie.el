@@ -1185,7 +1185,7 @@ from the stack. Returns nil if the stack is empty."
 		 (cons (funcall ,resultfun seq data)
 		       (aref trie--accumulate 0)))
 	   (and (>= (length (aref trie--accumulate 0)) ,maxnum)
-		(throw 'trie-complete--done nil))))))
+		(throw 'trie-accumulate--done nil))))))
     ;; filter, maxnum, !resultfun
     ((and ,filter ,maxnum (not ,resultfun))
      (lambda (node seq)
@@ -1195,7 +1195,7 @@ from the stack. Returns nil if the stack is empty."
 		 (cons (cons seq data)
 		       (aref trie--accumulate 0)))
 	   (and (>= (length (aref trie--accumulate 0)) ,maxnum)
-		(throw 'trie-complete--done nil))))))
+		(throw 'trie-accumulate--done nil))))))
     ;; filter, !maxnum, resultfun
     ((and ,filter (not ,maxnum) ,resultfun)
      (lambda (node seq)
@@ -1220,7 +1220,7 @@ from the stack. Returns nil if the stack is empty."
 	       (cons (funcall ,resultfun seq data)
 		     (aref trie--accumulate 0)))
 	 (and (>= (length (aref trie--accumulate 0)) ,maxnum)
-	      (throw 'trie-complete--done nil)))))
+	      (throw 'trie-accumulate--done nil)))))
     ;; !filter, maxnum, !resultfun
     ((and (not ,filter) ,maxnum (not ,resultfun))
      (lambda (node seq)
@@ -1229,7 +1229,7 @@ from the stack. Returns nil if the stack is empty."
 	       (cons (cons seq data)
 		     (aref trie--accumulate 0)))
 	 (and (>= (length (aref trie--accumulate 0)) ,maxnum)
-	      (throw 'trie-complete--done nil)))))
+	      (throw 'trie-accumulate--done nil)))))
     ;; !filter, !maxnum, resultfun
     ((and (not ,filter) (not ,maxnum) ,resultfun)
      (lambda (node seq)
@@ -1285,7 +1285,7 @@ from the stack. Returns nil if the stack is empty."
   ;; Accumulate results of running BODY code, and return them in appropriate
   ;; order. BODY should call ACCFUN to accumulate a result, passing it two
   ;; arguments: a trie data node, and the corresponding sequence. BODY can
-  ;; throw 'trie-complete--done to terminate the accumulation and return the
+  ;; throw 'trie-accumulate--done to terminate the accumulation and return the
   ;; results. A non-null DUPLICATES flag signals that the accumulated results
   ;; might contain duplicates, which should be deleted. Note that DUPLICATES
   ;; is ignored if RANKFUN is null. The other arguments should be passed
@@ -1316,7 +1316,7 @@ from the stack. Returns nil if the stack is empty."
 	      --trie-accumulate--resultfun))))
 
      ;; accumulate results
-     (catch 'trie-complete--done ,@body)
+     (catch 'trie-accumulate--done ,@body)
 
      ;; return list of completions
      (cond
