@@ -2,7 +2,7 @@
 ;;; trie.el --- trie package
 
 
-;; Copyright (C) 2004-2007 Toby Cubitt
+;; Copyright (C) 2008 Toby Cubitt
 
 ;; Author: Toby Cubitt <toby-predictive@dr-qubit.org>
 ;; Version: 0.1
@@ -32,24 +32,32 @@
 ;;
 ;; Quick Overview
 ;; --------------
+
 ;; A trie is a data structure used to store keys that are ordered
-;; sequences of elements (vectors, lists or strings in Elisp), in such a
-;; way that both storage and retrieval are reasonably space- and
-;; time-efficient. But, more importantly, searching for keys that match
-;; various patterns can also be done efficiently. For example, returning
-;; all strings with a given prefix, or searching for keys matching a
-;; pattern containing wildcards, or searching for all keys within a given
-;; Lewenstein distance of given string (though the latter two are not yet
-;; implemented in this package - code contributions welcome!).
+;; sequences of elements (vectors, lists or strings in Elisp; strings are
+;; by far the most common), in such a way that both storage and retrieval
+;; are space- and time-efficient. But, more importantly, a variety of
+;; more advanced queries can also be performed efficiently: for example,
+;; returning all strings with a given prefix, searching for keys matching
+;; a given wildcard pattern or regular expression, or searching for all
+;; keys that match any of the above to within a given Lewenstein distance
+;; (though this last is not yet implemented in this package - code
+;; contributions welcome!).
 ;;
 ;; You create a ternary search tree using `trie-create', create an
 ;; association using `trie-insert', retrieve an association using
-;; `trie-lookup', find completions of a sequence using `trie-complete',
-;; and map over a tree using `trie-map', `trie-mapc', `trie-mapcar', or
-;; `trie-mapf'. Using `trie-stack', you can create an object that allows
-;; the contents of the trie to be used like a stack; `trie-stack-pop'
-;; pops elements off the stack one-by-one, whilst `trie-stack-push'
-;; pushes things onto the stack.
+;; `trie-lookup', and map over a trie using `trie-map', `trie-mapc',
+;; `trie-mapcar', or `trie-mapf'. You can find completions of a prefix
+;; sequence using `trie-complete', search for keys that match a wildcard
+;; pattern using `trie-wildcard-search', or search for keys matching a
+;; regular expression using `trie-regexp-search'. Using `trie-stack', you
+;; can create an object that allows the contents of the trie to be used
+;; like a stack, useful for building other algorithms on top of tries;
+;; `trie-stack-pop' pops elements off the stack one-by-one, in "lexical"
+;; order, whilst `trie-stack-push' pushes things onto the
+;; stack. Similarly, `trie-complete-stack', `trie-wildcard-stack' and
+;; `trie-regexp-stack' create "lexically-ordered" stacks of query
+;; results.
 ;;
 ;; Note that there are two uses for a trie: as a lookup table, in which
 ;; case only the presence or absence of a key in the trie is significant,
@@ -58,55 +66,58 @@
 ;; implement lookup tables, leaving it up to you to implement an
 ;; associative array on top of this (by storing key+data pairs in the
 ;; data structure's keys, then defining a comparison function that only
-;; compares the key part). However, for a trie, this would be slightly
-;; less space-efficient than it needs to be, so this package does the
-;; opposite: it implements associative arrays, and leaves it up to you to
-;; use them as lookup tables if you so desire (with no loss of
-;; space-efficiency).
+;; compares the key part). For a trie, however, the underlying data
+;; structures naturally support associative arrays at no extra cost, so
+;; this package does the opposite: it implements associative arrays, and
+;; leaves it up to you to use them as lookup tables if you so desire.
 ;;
 ;;
 ;; Different Types of Trie
 ;; -----------------------
+
 ;; There are numerous ways to implement trie data structures internally,
-;; each with its own trade-offs. By viewing a trie as a tree whose nodes
-;; are themselves lookup tables for key elements, this package is able to
-;; support all types of trie, providing there exists (or you write!) an
-;; Elisp implementation of the corresponding type of lookup table. The
-;; best implementation will depend on what trade-offs are appropriate for
-;; your particular application. The following gives an overview of the
-;; advantages and disadvantages of various types of trie. (Not all of the
-;; underlying lookup tables have been implemented in Elisp yet, so using
-;; some of them would require writing the missing Elisp package!)
+;; each with its own time and space trade-offs. By viewing a trie as a
+;; tree whose nodes are themselves lookup tables for key elements, this
+;; package is able to support all types of trie in a uniform manner. This
+;; relies on there existing (or you writing!) an Elisp implementation of
+;; the corresponding type of lookup table. The best type of trie to use
+;; will depend on what trade-offs are appropriate for your particular
+;; application. The following gives an overview of the advantages and
+;; disadvantages of various types of trie. (Not all of the underlying
+;; lookup tables have been implemented in Elisp yet, so using some of the
+;; trie types described below would require writing the missing Elisp
+;; package!)
+;;
 ;;
 ;; One of the most effective all-round implementations of a trie is a
 ;; ternary search tree, which can be viewed as a tree of binary trees. If
 ;; basic binary search trees are used for the nodes of the trie, we get a
-;; basic ternary search tree. If self-balancing binary trees are used
+;; standard ternary search tree. If self-balancing binary trees are used
 ;; (e.g. AVL or red-black trees), we get a self-balancing ternary search
 ;; tree. If splay trees are used, we get yet another self-organising
 ;; variant of a ternary search tree. All ternary search trees have, in
-;; common, good space-efficiency. The time-efficiencies for the various
-;; trie operations are also good, assuming the underlying binary trees
-;; are balanced. Under that assumption, all variants of ternary search
-;; trees described below have the same asymptotic time-complexity for all
-;; trie operations.
+;; common, good space-efficiency. The time-efficiency of the various trie
+;; operations is also good, assuming the underlying binary trees are
+;; balanced. Under that assumption, all variants of ternary search trees
+;; described below have the same asymptotic time-complexity for all trie
+;; operations.
 ;;
 ;; Self-balancing trees ensure the underlying binary trees are always
 ;; close to perfectly balanced, with the usual trade-offs between the
 ;; different the types of self-balancing binary tree: AVL trees are
-;; slightly more efficient for lookup operations than red-black trees,
-;; but are slightly less efficienct for insertion operations, and less
-;; efficient for deletion operations. Splay trees give good average-case
+;; slightly more efficient for lookup operations than red-black trees, at
+;; a cost of slightly less efficienct insertion operations, and less
+;; efficient deletion operations. Splay trees give good average-case
 ;; complexity and are simpler to implement than AVL or red-black trees
 ;; (which can mean they're faster in practice!), at the expense of poor
 ;; worst-case complexity.
 ;;
 ;; If your tries are going to be static (i.e. created once and rarely
 ;; modified), then using perfectly balanced binary search trees might be
-;; more appropriate. Perfectly balancing the binary trees is very
-;; inefficient, but it only has to be when the trie is first created or
+;; appropriate. Perfectly balancing the binary trees is very inefficient,
+;; but it only has to be when the trie is first created or
 ;; modified. Lookup operations will then be as efficient as possible for
-;; ternary search trees, and the implementation will be much simpler (so
+;; ternary search trees, and the implementation will also be simpler (so
 ;; probably faster) than a self-balancing tree, without the space and
 ;; time overhead required to keep track of rebalancing.
 ;;
@@ -114,7 +125,8 @@
 ;; order usually results in a reasonably balanced tree. If this is the
 ;; likely scenario, using a basic binary tree without bothering to
 ;; balance it at all might be quite efficient, and, being even simpler to
-;; implement, could be faster overall.
+;; implement, could be quite fast overall.
+;;
 ;;
 ;; A digital trie is a different implementation of a trie, which can be
 ;; viewed as a tree of arrays, and has different space- and
@@ -124,7 +136,7 @@
 ;; gives something similar to a digital trie, potentially with better
 ;; space-complexity and the same amortised time-complexity, but at the
 ;; expense of occasional significant inefficiency when inserting and
-;; deleting (whenever the hash table has to be resized). Indeed, an array
+;; deleting (whenever a hash table has to be resized). Indeed, an array
 ;; can be viewed as a perfect hash table, but as such it requires the
 ;; number of possible values to be known in advance.
 ;;
@@ -1320,7 +1332,7 @@ from the stack. Returns nil if the stack is empty."
 
      ;; return list of completions
      (cond
-      ;; extract completions from heap for ranked query
+      ;; for a ranked query, extract completions from heap
       (,rankfun
        (let (completions)
 	 ;; check for and delete duplicates if flag is set
@@ -1584,72 +1596,72 @@ result for a match is a list containing cons cells whose cars and
 cdrs give the start and end indices of the elements that matched
 the corresponding groups, in order."
   (let ((pat (append pattern nil))  ; convert pattern to list
-	el (idx 0) group-stack groups)
+	token (idx 0) group-stack groups)
     (catch 'match
 
       ;; parse pattern
       (while (and pat (> (length sequence) 0))
-	(setq pat (trie--wildcard-parse-pattern pat)
-	      el (car pat)
+	(setq pat (trie--wildcard-next-token pat)
+	      token (car pat)
 	      pat (cdr pat))
 	(cond
 
 	 ;; start group (: add current character index to pending groups
-	 ((trie--wildcard-group-start-p el)
-	  (dotimes (i (trie--wildcard-group-count el))
+	 ((trie--wildcard-group-start-p token)
+	  (dotimes (i (trie--wildcard-group-count token))
 	    (push idx group-stack)))
 
 	 ;; end group ): add current character index to pending groups
-	 ((trie--wildcard-group-end-p el)
-	  (dotimes (i (trie--wildcard-group-count el))
+	 ((trie--wildcard-group-end-p token)
+	  (dotimes (i (trie--wildcard-group-count token))
 	    (if (null group-stack)
 		(error "Syntax error in trie wildcard pattern: missing \"(\"")
 	      (push (cons (pop group-stack) idx) groups))))
 
 	 ;; literal string: compare elements
-	 ((trie--wildcard-literal-p el)
+	 ((trie--wildcard-literal-p token)
 	  ;; if literal is longer than remaining string, or literal is at end
 	  ;; of pattern and remaining string is too long, match has failed
-	  (when (or (> (length el) (length sequence))
-		    (and (null pat) (< (length el) (length sequence))))
+	  (when (or (> (length token) (length sequence))
+		    (and (null pat) (< (length token) (length sequence))))
 	    (throw 'match nil))
 	  ;; compare element by element using CMPFUN
-	  (dotimes (i (length el))
-	    (when (or (funcall cmpfun (elt sequence i) (aref el i))
-		      (funcall cmpfun (aref el i) (elt sequence i)))
+	  (dotimes (i (length token))
+	    (when (or (funcall cmpfun (elt sequence i) (aref token i))
+		      (funcall cmpfun (aref token i) (elt sequence i)))
 	      (throw 'match nil)))
-	  (setq sequence (trie--subseq sequence (length el))
-		idx (+ idx (length el))))
+	  (setq sequence (trie--subseq sequence (length token))
+		idx (+ idx (length token))))
 
 	 ;; ? wildcard: accept anything
-	 ((trie--wildcard-?-p el)
+	 ((trie--wildcard-?-p token)
 	  (setq sequence (trie--subseq sequence 1)
 		idx (1+ idx)))
 
 	 ;; character alternative: check next element matches
-	 ((trie--wildcard-char-alt-p el)
-	  (while (and el
-		      (or (funcall cmpfun (elt sequence 0) (car el))
-			  (funcall cmpfun (car el) (elt sequence 0))))
-	    (setq el (cdr el)))
-	  (if el
+	 ((trie--wildcard-char-alt-p token)
+	  (while (and token
+		      (or (funcall cmpfun (elt sequence 0) (car token))
+			  (funcall cmpfun (car token) (elt sequence 0))))
+	    (setq token (cdr token)))
+	  (if token
 	      (setq sequence (trie--subseq sequence 1)
 		    idx (1+ idx))
 	    (throw 'match nil)))
 
 	 ;; negated character alternative: check next element isn't excluded
-	 ((trie--wildcard-neg-char-alt-p el)
-	  (dolist (c (butlast el))  ; drop final ^
+	 ((trie--wildcard-neg-char-alt-p token)
+	  (dolist (c (butlast token))  ; drop final ^
 	    (unless (or (funcall cmpfun (elt sequence 0) c)
 			(funcall cmpfun c (elt sequence 0)))
 	      (throw 'match nil))
 	    (setq idx (1+ idx))))
 
 	 ;; terminal * and possibly ): Houston, we have a match!
-	 ((and (trie--wildcard-*-p el)
+	 ((and (trie--wildcard-*-p token)
 	       (catch 'not-group
-		 (dolist (el pat)
-		   (unless (eq el ?\)) (throw 'not-group nil)))
+		 (dolist (tok pat)
+		   (unless (eq tok ?\)) (throw 'not-group nil)))
 		 t))
 	  (setq idx (+ idx (length sequence)))
 	  ;; if we have groups, complete them
@@ -1671,13 +1683,13 @@ the corresponding groups, in order."
 	  (throw 'match (or groups t)))
 
 	 ;; non-terminal *: not supported for efficiency reasons
-	 ((trie--wildcard-*-p el)
+	 ((trie--wildcard-*-p token)
 	  (error "Syntax error in trie wildcard pattern:\
 non-terminal * wildcards are not supported"))
 
 ;;; 	 ;; * wildcard: oh boy, gonna have to recursively check all possible
 ;;; 	 ;;             search brances
-;;; 	 ((trie--wildcard-*-p el)
+;;; 	 ((trie--wildcard-*-p token)
 ;;; 	  (setq sequence (trie--subseq sequence 1))
 ;;; 	  (throw 'match
 ;;; 		 (or (= (length sequence) 0)
@@ -1943,70 +1955,68 @@ first!."
 ;;; ------------------------------------------------------------------
 ;;;              Internal functions (do the real work)
 
-(defun trie--wildcard-parse-pattern (pattern &optional cmpfun)
+(defun trie--wildcard-next-token (pattern &optional cmpfun)
   ;; Extract first pattern element from PATTERN (a list), and return it consed
   ;; with remainder of pattern. If CMPFUN is supplied, it is used to sort
   ;; character alternatives.
   (when pattern
-    (let ((el (pop pattern)))
+    (let ((token (pop pattern)))
       (cond
        ;; *: drop any following *'s
-       ((eq el ?*)
+       ((eq token ?*)
 	(while (eq (car pattern) ?*) (pop pattern)))
 
        ;; [: gobble up to closing ]
-       ((eq el ?\[)
+       ((eq token ?\[)
 	;; character alternatives are stored in lists
-	(setq el ())
+	(setq token ())
 	(cond
 	 ;; gobble ] appearing straight after [
-	 ((eq (car pattern) ?\]) (push (pop pattern) el))
+	 ((eq (car pattern) ?\]) (push (pop pattern) token))
 	 ;; gobble ] appearing straight after [^
 	 ((and (eq (car pattern) ?^) (eq (nth 1 pattern) ?\]))
-	  (push (pop pattern) el)
-	  (push (pop pattern) el)))
+	  (push (pop pattern) token)
+	  (push (pop pattern) token)))
 	;; gobble everything up to closing ]
 	(while (not (eq (car pattern) ?\]))
-	  (push (pop pattern) el)
+	  (push (pop pattern) token)
 	  (unless pattern
-	    (error "Syntax error in trie wildcard pattern:\
- missing \"]\"")))
+	    (error "Syntax error in trie wildcard pattern: missing \"]\"")))
 	(pop pattern)  ; dump closing ]
 	;; if CMPFUN was supplied, sort characters in alternative
 	(when cmpfun
 	  ;; leave final ^ at end in negated character alternative
-	  (if (eq (car (last el)) ?^)
-	      (setq el (concat (sort (butlast el) cmpfun) ?^))
-	    (setq el (sort el cmpfun)))))
+	  (if (eq (car (last token)) ?^)
+	      (setq token (concat (sort (butlast token) cmpfun) ?^))
+	    (setq token (sort token cmpfun)))))
 
        ;; ?: nothing to gobble
-       ((eq el ??))
+       ((eq token ??))
 
        ;; ]: syntax error (always gobbled when parsing [)
-       ((eq el ?\])
-	(error "Syntax error in trie wildcard pattern:\
- missing \"[\""))
+       ((eq token ?\])
+	(error "Syntax error in trie wildcard pattern: missing \"[\""))
 
        ;; (: gobble any following ('s
-       ((eq el ?\()
+       ((eq token ?\()
 	(let ((i 1))
 	  (while (eq (car pattern) ?\()
 	    (incf i)
 	    (pop pattern))
-	  (setq el (cons ?\( i))))
+	  (setq token (cons ?\( i))))
 
        ;; ): gobble any following )'s
-       ((eq el ?\))
+       ((eq token ?\))
 	(let ((i 1))
 	  (while (eq (car pattern) ?\))
 	    (incf i)
 	    (pop pattern))
-	  (setq el (cons ?\) i))))
+	  (setq token (cons ?\) i))))
 
        ;; anything else, gobble up to first special character
        (t
-	(push el pattern)
-	(setq el nil)
+	(push token pattern)
+	(setq token nil)
 	(while (and pattern
 		    (not (or (eq (car pattern) ?\[) (eq (car pattern) ?\])
 			     (eq (car pattern) ?*)  (eq (car pattern) ??)
@@ -2017,12 +2027,12 @@ first!."
 	    (unless pattern
 	      (error "Syntax error in trie wildcard pattern:\
  missing character after \"\\\"")))
-	  (push (pop pattern) el))
+	  (push (pop pattern) token))
 	;; fixed strings are stored in vectors
-	(setq el (vconcat (nreverse el)))))
+	(setq token (vconcat (nreverse token)))))
 
-      ;; return cons containing first element and remaining pattern
-      (cons el pattern))))
+      ;; return first token and remaining pattern
+      (list token pattern))))
 
 
 
@@ -2148,24 +2158,22 @@ first!."
 	  (funcall accumulator node (if groups (cons seq groups) seq))))
 
     ;; otherwise, extract first pattern element and act on it
-    (setq pattern (trie--wildcard-parse-pattern pattern))
-    (let ((el (car pattern)))
-      (setq pattern (cdr pattern))
+    (destructuring-bind (token pattern) (trie--wildcard-next-token pattern)
       (cond
 
        ;; literal string: descend to corresponding node
-       ((trie--wildcard-literal-p el)
+       ((trie--wildcard-literal-p token)
 	;; find node corresponding to literal string pattern
-	(when (setq node (trie--node-find node el lookupfun))
+	(when (setq node (trie--node-find node token lookupfun))
 	  (trie--do-wildcard-search
-	   node (trie--seq-concat seq el)
+	   node (trie--seq-concat seq token)
 	   pattern rankfun maxnum reverse
-	   (+ idx (length el)) group-stack groups
+	   (+ idx (length token)) group-stack groups
 	   comparison-function lookupfun mapfun)))
 
        ;; start group (: add current character index to pending groups
-       ((trie--wildcard-group-start-p el)
-	(dotimes (i (trie--wildcard-group-count el))
+       ((trie--wildcard-group-start-p token)
+	(dotimes (i (trie--wildcard-group-count token))
 	  (push idx group-stack))
 	(trie--do-wildcard-search
 	 node seq pattern rankfun maxnum reverse
@@ -2173,8 +2181,8 @@ first!."
 	 comparison-function lookupfun mapfun))
 
        ;; end group ): add completed groups to list
-       ((trie--wildcard-group-end-p el)
-	(dotimes (i (trie--wildcard-group-count el))
+       ((trie--wildcard-group-end-p token)
+	(dotimes (i (trie--wildcard-group-count token))
 	  (if (null group-stack)
 	      (error "Syntax error in trie wildcard pattern: missing \"(\"")
 	    (push (cons (pop group-stack) idx) groups)))
@@ -2184,7 +2192,7 @@ first!."
 	 comparison-function lookupfun mapfun))
 
        ;; terminal *: accumulate everything below current node
-       ((and (null pattern) (trie--wildcard-*-p el))
+       ((and (null pattern) (trie--wildcard-*-p token))
 	(unless (null group-stack)
 	  (error "Syntax error in trie wildcard pattern: missing \")\""))
 	(let ((grps (sort (copy-sequence groups)
@@ -2198,22 +2206,22 @@ first!."
 
        ;; terminal * and ): accumulate everything below current node and
        ;;                   close group(s)
-       ((and (trie--wildcard-*-p el)
+       ((and (trie--wildcard-*-p token)
 	     (catch 'not-group
-	       (dolist (el pattern)
-		 (unless (eq el ?\)) (throw 'not-group nil)))
+	       (dolist (tok pattern)
+		 (unless (eq tok ?\)) (throw 'not-group nil)))
 	       t))
 	(trie--mapc
 	 (lambda (node seq)
 	   (let ((grp-stack group-stack)
 		 (grps (copy-sequence groups))
 		 (pat pattern))
-	     (while pat
-	       (if (null grp-stack)
-		   (error "Syntax error in trie wildcard pattern:\
- missing \"(\"")
-		 (push (cons (pop grp-stack) (length seq)) grps)
-		 (setq pat (cdr pat))))
+	     (while (progn
+		      (if (null grp-stack)
+			  (error "Syntax error in trie wildcard\
+ pattern: missing \"(\"")
+			(push (cons (pop grp-stack) (length seq)) grps)
+			(pop pat))))
 	     (unless (null grp-stack)
 	       (error "Syntax error in trie wildcard pattern: missing \")\""))
 	     (setq grps
@@ -2226,13 +2234,13 @@ first!."
 	 (if maxnum reverse (not reverse))))
 
        ;; non-terminal *: not supported for efficiency reasons
-       ((trie--wildcard-*-p el)
+       ((trie--wildcard-*-p token)
 	  (error "Syntax error in trie wildcard pattern:\
 non-terminal * wildcards are not supported"))
 
 ;;;        ;; * wildcard: map over all nodes immediately below current one, with
 ;;;        ;;             and without using up the *
-;;;        ((trie--wildcard-*-p el)
+;;;        ((trie--wildcard-*-p token)
 ;;; 	(funcall mapfun
 ;;; 		 (lambda (node)
 ;;; 		   ;; skip data nodes (terminal * dealt with above)
@@ -2252,7 +2260,7 @@ non-terminal * wildcards are not supported"))
 ;;; 		 (trie--node-subtree node)))
 
        ;; ? wildcard: map over all child nodes
-       ((trie--wildcard-?-p el)
+       ((trie--wildcard-?-p token)
 	(funcall mapfun
 		 (lambda (node)
 		   ;; skip data nodes (note: if we wanted to implement a "0
@@ -2268,7 +2276,7 @@ non-terminal * wildcards are not supported"))
 		 (if maxnum reverse (not reverse))))
 
        ;; character alternative: descend to corresponding nodes in turn
-       ((trie--wildcard-char-alt-p el)
+       ((trie--wildcard-char-alt-p token)
 	(let (n)
 	  (mapc
 	   (lambda (c)
@@ -2279,24 +2287,23 @@ non-terminal * wildcards are not supported"))
 		pattern rankfun maxnum reverse
 		(1+ idx) group-stack groups
 		comparison-function lookupfun mapfun)))
-	   (if rankfun el
-	     (sort el (if (or (and maxnum reverse)  ; no xnor in Elisp!
-			      (and (not maxnum) (not reverse)))
-			  (lambda (a b)
-			    (not (funcall comparison-function a b)))
-			comparison-function))))))
+	   (if rankfun token
+	     (sort token (if (or (and maxnum reverse)  ; no xnor in Elisp!
+				 (and (not maxnum) (not reverse)))
+			     (lambda (a b)
+			       (not (funcall comparison-function a b)))
+			   comparison-function))))))
 
        ;; negated character alternative: map over all child nodes, skipping
        ;;                                excluded ones
-       ((trie--wildcard-neg-char-alt-p el)
-	(pop el)
+       ((trie--wildcard-neg-char-alt-p token)
 	(funcall mapfun
 		 (lambda (node)
 		   ;; skip data nodes (note: if we wanted to implement a "0 or
 		   ;; 1" wildcard, would need to accumulate these instead)
 		   (unless (or (trie--node-data-p node)
 			       (catch 'excluded
-				 (dolist (c (butlast el))  ; drop final ^
+				 (dolist (c (butlast token))  ; drop final ^
 				   (when (eq c (trie--node-split node))
 				     (throw 'excluded t)))))
 		     (trie--do-wildcard-search
@@ -2314,8 +2321,8 @@ non-terminal * wildcards are not supported"))
 
 ;; FIXME: using a defstruct instead of these macros causes *very* weird
 ;;        bugs...why?!?!?!!!
-(defmacro trie--wildcard-stack-el-create (seq pattern node
-					      idx group-stack groups)
+(defmacro trie--wildcard-stack-el-create
+  (seq pattern node idx group-stack groups)
   `(vector ,seq ,pattern ,node ,idx ,group-stack ,groups))
 
 (defmacro trie--wildcard-stack-el-seq (el) `(aref ,el 0))
@@ -2352,13 +2359,11 @@ non-terminal * wildcards are not supported"))
 	(seq (cond ((stringp pattern) "") ((listp pattern) ()) (t [])))
 	cmpfun store)
     (setq cmpfun (if reverse
-		 `(lambda (a b) (,comparison-function b a))
-		 comparison-function)
+		     `(lambda (a b) (,comparison-function b a))
+		   comparison-function)
 	  store (list
 		 (trie--wildcard-stack-el-create
-		  seq
-		  (trie--wildcard-parse-pattern
-		   (append pattern nil) cmpfun)
+		  seq (trie--wildcard-next-token (append pattern nil) cmpfun)
 		  (trie--root trie) 0 nil nil)))
     (message "init seq: %s" (trie--wildcard-stack-el-seq (car store)))
     (trie--wildcard-stack-repopulate
@@ -2379,7 +2384,7 @@ non-terminal * wildcards are not supported"))
   ;; lexical order if REVERSE is nil (non-nil). The remaining arguments should
   ;; be the corresponding trie functions (note that COMPARISON-FUNCTION should
   ;; be the trie--comparison-function, *not* the trie--cmpfun)
-  (let (seq pattern node idx group-stack groups cmpfun)
+  (let (seq pattern token node idx group-stack groups cmpfun)
     (setq cmpfun (if reverse
 		     `(lambda (a b) (,comparison-function b a))
 		   comparison-function))
@@ -2399,11 +2404,13 @@ non-terminal * wildcards are not supported"))
 	      idx         (trie--wildcard-stack-el-idx (car store))
 	      group-stack (trie--wildcard-stack-el-group-stack (car store))
 	      groups      (trie--wildcard-stack-el-groups (car store))
+	      token   (nth 0 pattern)
+	      pattern (nth 1 pattern)
 	      store (cdr store))
 	(cond
 
 	 ;; empty pattern: look for data node
-	 ((null pattern)
+	 ((null token)
 	  (unless (null group-stack)
 	    (error "Syntax error in trie wildcard pattern: missing \")\""))
 	  ;; if we find one, push match onto stack and we're done
@@ -2419,44 +2426,44 @@ non-terminal * wildcards are not supported"))
 	    (throw 'done store)))
 
 	 ;; start group (: add current character index to pending groups
-	 ((trie--wildcard-group-start-p (car pattern))
-	  (dotimes (i (trie--wildcard-group-count (car pattern)))
+	 ((trie--wildcard-group-start-p token)
+	  (dotimes (i (trie--wildcard-group-count token))
 	    (push idx group-stack))
 	  (push
 	   (trie--wildcard-stack-el-create
-	    seq (trie--wildcard-parse-pattern (cdr pattern) cmpfun)
+	    seq (trie--wildcard-next-token pattern cmpfun)
 	    node idx group-stack groups)
 	   store))
 
 	 ;; end group ): add current character index to pending groups
-	 ((trie--wildcard-group-end-p (car pattern))
-	  (dotimes (i (trie--wildcard-group-count (car pattern)))
+	 ((trie--wildcard-group-end-p token)
+	  (dotimes (i (trie--wildcard-group-count token))
 	    (if (null group-stack)
 		(error "Syntax error in trie wildcard pattern: missing \"(\"")
 	      (push (cons (pop group-stack) idx) groups)))
 	  (push
 	   (trie--wildcard-stack-el-create
-	    seq (trie--wildcard-parse-pattern (cdr pattern) cmpfun)
+	    seq (trie--wildcard-next-token pattern cmpfun)
 	    node idx group-stack groups)
 	   store))
 
 	 ;; literal string: descend to corresponding node and continue
-	 ((trie--wildcard-literal-p (car pattern))
-	  (setq node (trie--node-find node (car pattern) lookupfun))
+	 ((trie--wildcard-literal-p token)
+	  (setq node (trie--node-find node token lookupfun))
 	  ;; if we found node corresponding to string, push that node onto
 	  ;; the stack (otherwise, current branch of search as failed)
 	  (when node
 	    (push (trie--wildcard-stack-el-create
-		   (trie--seq-concat seq (car pattern))
-		   (trie--wildcard-parse-pattern (cdr pattern) cmpfun)
-		   node (+ idx (length (car pattern))) group-stack groups)
+		   (trie--seq-concat seq token)
+		   (trie--wildcard-next-token pattern cmpfun)
+		   node (+ idx (length token)) group-stack groups)
 		  store)))
 
 	 ;; terminal *: standard repopulation using everything below node
-	 ((and (trie--wildcard-*-p (car pattern))
+	 ((and (trie--wildcard-*-p token)
 	       (catch 'not-group
-		 (dolist (el (cdr pattern))
-		   (unless (eq el ?\)) (throw 'not-group nil)))
+		 (dolist (tok pattern)
+		   (unless (eq tok ?\)) (throw 'not-group nil)))
 		 t))
 	  ;; if starting a new * wildcard, push a node stack onto the stack
 	  (if (trie--node-p node)
@@ -2496,9 +2503,9 @@ non-terminal * wildcards are not supported"))
 	      (when (funcall stack-emptyfun stack)
 		(setq store (cdr store))))
 	    ;; add completed groups to list
-	    (when (cdr pattern)
-	      (setq pattern (trie--wildcard-parse-pattern (cdr pattern)))
-	      (dotimes (i (trie--wildcard-group-count (car pattern)))
+	    (when pattern
+	      (setq pattern (trie--wildcard-next-token pattern))
+	      (dotimes (i (trie--wildcard-group-count token))
 		(if (null group-stack)
 		    (error "Syntax error in trie wildcard pattern:\
  missing \"(\"")
@@ -2519,13 +2526,13 @@ non-terminal * wildcards are not supported"))
 	    (throw 'done store)))
 
 	 ;; non-terminal *: not supported for efficiency reasons
-	 ((trie--wildcard-*-p (car pattern))
+	 ((trie--wildcard-*-p token)
 	  (error "Syntax error in trie wildcard pattern:\
 non-terminal * wildcards are not supported"))
 
 	 ;; ? wildcard: push wildcard node stack onto stack and repopulate
 	 ;;             again
-	 ((trie--wildcard-?-p (car pattern))
+	 ((trie--wildcard-?-p token)
 	  ;; if we're starting a new ? wildcard, push a node stack onto the
 	  ;; stack
 	  (if (trie--node-p node)
@@ -2553,39 +2560,39 @@ non-terminal * wildcards are not supported"))
 	      (push
 	       (trie--wildcard-stack-el-create
 		(trie--seq-append seq (trie--node-split node))
-		(trie--wildcard-parse-pattern (cdr pattern) cmpfun)
+		(trie--wildcard-next-token pattern cmpfun)
 		node (1+ idx) group-stack groups)
 	       store))))
 
 	 ;; character alternative: push next matching node onto stack and
 	 ;;                        repopulate again
-	 ((trie--wildcard-char-alt-p (car pattern))
+	 ((trie--wildcard-char-alt-p token)
 	  ;; push node back onto the stack
 	  (push (trie--wildcard-stack-el-create
 		 seq pattern node idx group-stack groups)
 		store)
-	  (let ((c (pop (car pattern))))
+	  (let ((c (pop token)))
 	    (while (and c
 			(not (setq node
 				   (funcall lookupfun
 					    (trie--node-subtree node)
 					    (trie--node-create-dummy c)))))
-	      (setq c (pop (car pattern))))
+	      (setq c (pop token)))
 	    ;; if we've exhausted all characters in the alternative, remove it
 	    ;; from the stack
-	    (when (null (car pattern)) (setq store (cdr store)))
+	    (when (null token) (setq store (cdr store)))
 	    ;; if we found a match, push matching node onto stack
 	    (when node
 	      (push
 	       (trie--wildcard-stack-el-create
 		(trie--seq-append seq (trie--node-split node))
-		(trie--wildcard-parse-pattern (cdr pattern) cmpfun)
+		(trie--wildcard-next-token pattern cmpfun)
 		node (1+ idx) group-stack groups)
 	       store))))
 
 	 ;; negated character alternative: push next non-excluded node onto
 	 ;;                                stack and repopulate again
-	 ((trie--wildcard-neg-char-alt-p (car pattern))
+	 ((trie--wildcard-neg-char-alt-p token)
 	  ;; if we're starting a new negated character alternative, push a
 	  ;; node stack onto the stack
 	  (if (trie--node-p node)
@@ -2606,7 +2613,7 @@ non-terminal * wildcards are not supported"))
 	    (setq node (funcall stack-popfun stack))
 	    (while (and node
 			(catch 'excluded
-			  (dolist (c (butlast (car pattern))) ; drop final ^
+			  (dolist (c (butlast token)) ; drop final ^
 			    (when (eq (trie--node-split node) c)
 			      (throw 'excluded t)))))
 	      (setq node (funcall stack-popfun stack)))
@@ -2618,7 +2625,7 @@ non-terminal * wildcards are not supported"))
 	      (push
 	       (trie--wildcard-stack-el-create
 		(trie--seq-append seq (trie--node-split node))
-		(trie--wildcard-parse-pattern (cdr pattern) cmpfun)
+		(trie--wildcard-next-token pattern cmpfun)
 		node (1+ idx) group-stack groups)
 	       store)))))
 
