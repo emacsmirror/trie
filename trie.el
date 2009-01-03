@@ -1094,15 +1094,20 @@ is better to use one of those instead."
     (trie--stack-create trie type reverse)))
 
 
-(defun trie-stack-pop (trie-stack)
+(defun trie-stack-pop (trie-stack &optional nilflag)
   "Pop the first element from TRIE-STACK.
-Returns nil if the stack is empty."
-  ;; if elements have been pushed onto the stack, pop those first
-  (if (trie--stack-pushed trie-stack)
-      (pop (trie--stack-pushed trie-stack))
-    ;; otherwise, pop first element from trie-stack and repopulate it
-    (let ((first (pop (trie--stack-store trie-stack))))
-      (when first
+
+Returns nil if the stack is empty, or NILFLAG if specified. (The
+latter allows an empty stack to be distinguished from a null
+element stored in the trie.)"
+  ;; return nilflag if stack is empty
+  (if (trie-stack-empty-p trie-stack)
+      nilflag
+    ;; if elements have been pushed onto the stack, pop those first
+    (if (trie--stack-pushed trie-stack)
+	(pop (trie--stack-pushed trie-stack))
+      ;; otherwise, pop first element from trie-stack and repopulate it
+      (let ((first (pop (trie--stack-store trie-stack))))
 	(setf (trie--stack-store trie-stack)
 	      (funcall (trie--stack-repopulatefun trie-stack)
 		       (trie--stack-store trie-stack)
@@ -1120,14 +1125,21 @@ Returns nil if the stack is empty."
   (push element (trie--stack-pushed trie-stack)))
 
 
-(defun trie-stack-first (trie-stack)
+(defun trie-stack-first (trie-stack &optional nilflag)
   "Return the first element from TRIE-STACK, without removing it
-from the stack. Returns nil if the stack is empty."
-  ;; if elements have been pushed onto the stack, return first of those
-  (if (trie--stack-pushed trie-stack)
-      (car (trie--stack-pushed trie-stack))
-    ;; otherwise, return first element from trie-stack
-    (car (trie--stack-store trie-stack))))
+from the stack.
+
+Returns nil if the stack is empty, or NILFLAG if specified. (The
+latter allows an empty stack to be distinguished from a null
+element stored in the trie.)"
+  ;; return nilflag if stack is empty
+  (if (trie-stack-empty-p trie-stack)
+      nilflag
+    ;; if elements have been pushed onto the stack, return first of those
+    (if (trie--stack-pushed trie-stack)
+	(car (trie--stack-pushed trie-stack))
+      ;; otherwise, return first element from trie-stack
+      (car (trie--stack-store trie-stack)))))
 
 
 (defalias 'trie-stack-p 'trie--stack-p
@@ -1529,9 +1541,8 @@ it is better to use one of those instead."
   `(cdr ,el))
 
 
-
 ;;; ----------------------------------------------------------------
-;;;                 The public search functions
+;;;            The public wildcard search functions
 
 (defun trie-wildcard-match (pattern sequence cmpfun)
   "Return t if wildcard PATTERN matches SEQ, nil otherwise.
@@ -1951,7 +1962,6 @@ first!."
 
 
 
-
 ;;; ------------------------------------------------------------------
 ;;;              Internal functions (do the real work)
 
@@ -2035,6 +2045,9 @@ first!."
       (list token pattern))))
 
 
+
+;;; ------------------------------------------------------------------
+;;;                      wildcard search
 
 (defun trie--wildcard-construct-rankfun (trie pattern rankfun reverse)
   ;; construct appropriate rank function for wildcard search, and return a
@@ -2318,6 +2331,8 @@ non-terminal * wildcards are not supported"))
 
 
 
+;;; ------------------------------------------------------------------
+;;;                      wildcard stack
 
 ;; FIXME: using a defstruct instead of these macros causes *very* weird
 ;;        bugs...why?!?!?!!!
@@ -2338,7 +2353,7 @@ non-terminal * wildcards are not supported"))
 ;;    (:type vector)
 ;;    (:constructor nil)
 ;;    (:constructor trie--wildcard-stack-el-create
-;; 		 (seq pattern node idx group-stack groups))
+;; 		    (seq pattern node idx group-stack groups))
 ;;    (:copier nil))
 ;;   seq pattern node idx group-stack groups)
 
@@ -2631,6 +2646,12 @@ non-terminal * wildcards are not supported"))
 
 	)))  ; end of infinite loop and catches
   store)  ; return repopulated store
+
+
+
+
+;; ================================================================
+;;                        Regexp search
 
 
 
