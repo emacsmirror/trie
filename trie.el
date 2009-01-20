@@ -293,6 +293,14 @@
 	   (t (,cmpfun a b)))))
 
 
+(defun trie--construct-equality-function (comparison-function)
+  ;; create equality function from trie comparison function
+  `(lambda (a b)
+     (and (not (,comparison-function a b))
+	  (not (,comparison-function b a)))))
+
+
+
 ;;; ----------------------------------------------------------------
 ;;;          Functions and macros for handling a trie node.
 
@@ -1589,7 +1597,8 @@ default key-data cons cell."
    rankfun maxnum reverse filter resultfun accumulator nil
    (trie--do-regexp-search
     (trie--root trie)
-    (tNFA-from-regexp regexp)
+    (tNFA-from-regexp regexp :test (trie--construct-equality-function
+				    (trie--comparison-function trie)))
     (cond ((stringp regexp) "") ((listp regexp) ()) (t []))
     0 (or (and maxnum reverse) (and (not maxnum) (not reverse)))
     (trie--comparison-function trie)
@@ -1695,7 +1704,11 @@ elements that matched the corresponding groups, in order."
   ;; Construct store for regexp stack based on TRIE.
   (let ((seq (cond ((stringp regexp) "") ((listp regexp) ()) (t [])))
 	store)
-    (push (list seq (trie--root trie) (tNFA-from-regexp regexp) 0)
+    (push (list seq (trie--root trie)
+		(tNFA-from-regexp
+		 regexp :test (trie--construct-equality-function
+			       (trie--comparison-function trie)))
+		0)
 	  store)
     (trie--regexp-stack-repopulate
      store reverse
