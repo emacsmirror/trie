@@ -2,7 +2,7 @@
 ;;; trie.el --- trie package
 
 
-;; Copyright (C) 2008 Toby Cubitt
+;; Copyright (C) 2008-2009 Toby Cubitt
 
 ;; Author: Toby Cubitt <toby-predictive@dr-qubit.org>
 ;; Version: 0.2
