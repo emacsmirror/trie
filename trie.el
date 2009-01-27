@@ -1202,12 +1202,12 @@ element stored in the trie.)"
 ;; For queries ranked in anything other than lexical order, we use a partial
 ;; heap-sort to find the k=MAXNUM highest ranked matches among the n possibile
 ;; matches. This has worst-case time complexity O(n log k), and is both simple
-;; and elegant. An optimal algorithm (e.g. partial quick-sort where the
-;; irrelevant partition is discarded at each step) would have complexity O(n +
-;; k log k), but is probably not worth the extra coding effort, and would have
-;; worse space complexity unless coded to work "in-place", which would be
-;; highly non-trivial. (I haven't done any benchmarking, though, so feel free
-;; to do so and let me know the results!)
+;; and elegant. An optimal algorithm (e.g. partial quick-sort discarding the
+;; irrelevant partition at each step) would have complexity O(n + k log k),
+;; but is probably not worth the extra coding effort, and would have worse
+;; space complexity unless coded to work "in-place", which would be highly
+;; non-trivial. (I haven't done any benchmarking, though, so feel free to do
+;; so and let me know the results!)
 
 (defmacro trie--construct-accumulator (maxnum filter resultfun)
   ;; Does what it says on the tin! | sed -e 's/on/in/' -e 's/tin/macro name/'
