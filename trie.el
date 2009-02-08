@@ -1536,9 +1536,15 @@ REGEXP is a string, it must be possible to apply `string' to
 individual elements of the keys stored in the trie. The matches
 returned in the alist will be sequences of the same type as KEY.
 
-Back-references and non-greedy postfix operators are *not*
-supported, and the matches are always anchored, so `$' and `^'
-lose their special meanings.
+Only a subset of the full Emacs regular expression syntax is
+supported. There is no support for regexp constructs that are
+only meaningful for strings (character ranges and character
+classes inside character alternatives, and syntax-related
+backslash constructs). Back-references and non-greedy postfix
+operators are not supported, so `?' after a postfix operator
+loses its special meaning. Also, matches are always anchored, so
+`$' and `^' lose their special meanings (use `.*' at the
+beginning and end of the regexp to get an unanchored match).
 
 If the regexp contains any non-shy grouping constructs, subgroup
 match data is included in the results. In this case, the car of
