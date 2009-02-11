@@ -153,6 +153,7 @@
 ;; * Replaced wildcard searches with regexp searches, using the tNFA.el tagged
 ;;   non-deterministic finite state automata library. This is both more
 ;;   general *and* more efficient.
+;; * Bug fix in `trie--do-regexp-search'
 ;;
 ;; Version 0.1
 ;; * Initial release (complete rewrite from scratch of tstree.el!)
@@ -1621,6 +1622,17 @@ default key-data cons cell."
   ;; POS is it's length. REVERSE is the usual query argument, and the
   ;; remaining arguments are the corresponding trie functions.
   (declare (special accumulator))
+
+  ;; if NFA has matched, check if trie contains current string
+  (when (tNFA-match-p tNFA)
+    (let (node groups)
+      (when (setq node (trie--find-data-node
+			--trie--regexp-search--node lookupfun))
+	(setq groups (tNFA-group-data tNFA))
+	(funcall accumulator
+		 (if groups (cons seq groups) seq)
+		 (trie--node-data node)))))
+
   (cond
    ;; data node
    ((trie--node-data-p --trie--regexp-search--node)
