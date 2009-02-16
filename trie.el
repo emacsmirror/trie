@@ -5,7 +5,7 @@
 ;; Copyright (C) 2008-2009 Toby Cubitt
 
 ;; Author: Toby Cubitt <toby-predictive@dr-qubit.org>
-;; Version: 0.2
+;; Version: 0.2.1
 ;; Keywords: trie, ternary search tree, completion
 ;; URL: http://www.dr-qubit.org/emacs.php
 
@@ -146,6 +146,9 @@
 
 
 ;;; Change Log:
+;;
+;; Version 0.2.1
+;; * bug-fix to result accumulation in `trie--do-regexp-search'
 ;;
 ;; Version 0.2
 ;; * Replaced wildcard searches with regexp searches, using the tNFA.el
