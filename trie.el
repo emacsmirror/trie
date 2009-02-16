@@ -1645,8 +1645,8 @@ default key-data cons cell."
     (trie--root trie)
     (tNFA-from-regexp regexp :test (trie--construct-equality-function
 				    (trie--comparison-function trie)))
-    (cond ((stringp regexp) "") ((listp regexp) ()) (t []))
-    0 (or (and maxnum reverse) (and (not maxnum) (not reverse)))
+    (cond ((stringp regexp) "") ((listp regexp) ()) (t []))  0
+    (or (and maxnum reverse) (and (not maxnum) (not reverse)))
     (trie--comparison-function trie)
     (trie--lookupfun trie)
     (trie--mapfun trie))))
@@ -1663,8 +1663,9 @@ default key-data cons cell."
   ;; trie functions.
   (declare (special accumulator))
 
-  ;; if NFA has matched, check if trie contains current string
-  (when (tNFA-match-p tNFA)
+  ;; if NFA has matched and we're accumulating in normal order, check if
+  ;; trie contains current string
+  (when (and (not reverse) (tNFA-match-p tNFA))
     (let (node groups)
       (when (setq node (trie--find-data-node
 			--trie--regexp-search--node lookupfun))
@@ -1674,25 +1675,25 @@ default key-data cons cell."
 		 (trie--node-data node)))))
 
   (cond
-   ;; data node
-   ((trie--node-data-p --trie--regexp-search--node)
-    (when (tNFA-match-p tNFA)
-      (let ((groups (tNFA-group-data tNFA)))
-	(funcall accumulator
-		 (if groups (cons seq groups) seq)
-		 (trie--node-data --trie--regexp-search--node)))))
+   ;; ;; data node
+   ;; ((trie--node-data-p --trie--regexp-search--node)
+   ;;  (when (tNFA-match-p tNFA)
+   ;;    (let ((groups (tNFA-group-data tNFA)))
+   ;; 	(funcall accumulator
+   ;; 		 (if groups (cons seq groups) seq)
+   ;; 		 (trie--node-data --trie--regexp-search--node)))))
 
    ;; wildcard transition: map over all nodes in subtree
    ((tNFA-wildcard-p tNFA)
     (let (state groups)
       (funcall mapfun
 	       (lambda (node)
-		 (if (trie--node-data-p node)
-		     (when (tNFA-match-p tNFA)
-		       (setq groups (tNFA-group-data tNFA))
-		       (funcall accumulator
-				(if groups (cons seq groups) seq)
-				(trie--node-data node)))
+		 (unless (trie--node-data-p node)
+		     ;; (when (tNFA-match-p tNFA)
+		     ;;   (setq groups (tNFA-group-data tNFA))
+		     ;;   (funcall accumulator
+		     ;; 		(if groups (cons seq groups) seq)
+		     ;; 		(trie--node-data node)))
 		   (when (setq state (tNFA-next-state
 				      tNFA (trie--node-split node) pos))
 		     (trie--do-regexp-search
@@ -1715,8 +1716,18 @@ default key-data cons cell."
 		   (setq state (tNFA-next-state tNFA chr pos)))
 	  (trie--do-regexp-search
 	   node state (trie--seq-append seq chr) (1+ pos)
-	   reverse comparison-function lookupfun mapfun)))))
-   ))
+	   reverse comparison-function lookupfun mapfun))))))
+
+  ;; if NFA has matched and we're accumulating in reverse order, check if
+  ;; trie contains current string
+  (when (and reverse (tNFA-match-p tNFA))
+    (let (node groups)
+      (when (setq node (trie--find-data-node
+			--trie--regexp-search--node lookupfun))
+	(setq groups (tNFA-group-data tNFA))
+	(funcall accumulator
+		 (if groups (cons seq groups) seq)
+		 (trie--node-data node))))))
 
 
 
