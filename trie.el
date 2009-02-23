@@ -1903,7 +1903,9 @@ elements that matched the corresponding groups, in order."
 ;;        works in that case.
 
 
-(eval-when-compile (require 'edebug))
+(eval-when-compile
+  (require 'edebug)
+  (require 'advice))
 
 
 (ad-define-subr-args 'edebug-prin1 '(object &optional printcharfun))
