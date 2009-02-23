@@ -5,7 +5,7 @@
 ;; Copyright (C) 2008-2009 Toby Cubitt
 
 ;; Author: Toby Cubitt <toby-predictive@dr-qubit.org>
-;; Version: 0.2.1
+;; Version: 0.2.2
 ;; Keywords: trie, ternary search tree, completion
 ;; URL: http://www.dr-qubit.org/emacs.php
 
@@ -146,6 +146,10 @@
 
 
 ;;; Change Log:
+;;
+;; Version 0.2.2
+;; * added `edebug-prin1' and `edebug-prin1-to-string' advice to prevent
+;;   edebug hanging whilst printing large tries
 ;;
 ;; Version 0.2.1
 ;; * bug-fix to result accumulation in `trie--do-regexp-search'
@@ -1871,6 +1875,55 @@ elements that matched the corresponding groups, in order."
 			store)))))
 	   ))))
   store)
+
+
+
+;; ----------------------------------------------------------------
+;;            Pretty-print tries during edebug
+
+;; Note:
+;; -----
+
+;; We advise the `edebug-prin1' and `edebug-prin1-to-string' functions
+;; (actually, aliases) so that they pring "#<trie>" instead of the full
+;; print form for tries.
+;;
+;; This is because, if left to its own devices, edebug hangs for ages
+;; whilst printing large tries, and you either have to wait for a *very*
+;; long time for it to finish, or kill Emacs entirely. (Even C-g C-g
+;; fails!)
+;;
+;; Since the print form of a trie is practically incomprehensible
+;; anyway, we don't lose much by doing this. If you *really* want to
+;; print tries in full whilst edebugging, despite this warning, disable
+;; the advice.
+;;
+;; FIXME: Should use `cedet-edebug-prin1-extensions' instead of advice
+;;        when `cedet-edebug' is loaded, though I believe this still
+;;        works in that case.
+
+
+(eval-when-compile (require 'edebug))
+
+
+(ad-define-subr-args 'edebug-prin1 '(object &optional printcharfun))
+
+(defadvice edebug-prin1
+  (around trie activate compile preactivate)
+  (if (trie-p object)
+      (progn
+	(prin1 "#<trie>" printcharfun)
+	(setq ad-return-value "<#trie>"))
+    ad-do-it))
+
+
+(ad-define-subr-args 'edebug-prin1-to-string '(object &optional noescape))
+
+(defadvice edebug-prin1-to-string
+  (around trie activate compile preactivate)
+  (if (trie-p object)
+      (setq ad-return-value "#<trie>")
+    ad-do-it))
 
 
 
