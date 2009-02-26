@@ -1908,24 +1908,35 @@ elements that matched the corresponding groups, in order."
   (require 'advice))
 
 
+(defun trie--edebug-pretty-print (object)
+  (cond
+   ((trie-p object) "#<trie>")
+   ((and object (listp object))
+    (concat "(" (mapconcat 'trie--edebug-pretty-print object " ")
+	    ")"))
+   (t (prin1-to-string object))))
+
+
 (ad-define-subr-args 'edebug-prin1 '(object &optional printcharfun))
 
 (defadvice edebug-prin1
   (around trie activate compile preactivate)
-  (if (trie-p object)
-      (progn
-	(prin1 "#<trie>" printcharfun)
-	(setq ad-return-value "<#trie>"))
-    ad-do-it))
+  (let ((pretty (trie--edebug-pretty-print object)))
+    (if pretty
+	(progn
+	  (prin1 pretty printcharfun)
+	  (setq ad-return-value pretty))
+    ad-do-it)))
 
 
 (ad-define-subr-args 'edebug-prin1-to-string '(object &optional noescape))
 
 (defadvice edebug-prin1-to-string
   (around trie activate compile preactivate)
-  (if (trie-p object)
-      (setq ad-return-value "#<trie>")
-    ad-do-it))
+  (let ((pretty (trie--edebug-pretty-print object)))
+    (if pretty
+	(setq ad-return-value pretty)
+      ad-do-it)))
 
 
 
