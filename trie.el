@@ -1911,9 +1911,17 @@ elements that matched the corresponding groups, in order."
 (defun trie--edebug-pretty-print (object)
   (cond
    ((trie-p object) "#<trie>")
-   ((and object (listp object))
-    (concat "(" (mapconcat 'trie--edebug-pretty-print object " ")
-	    ")"))
+   ((consp object)
+    (if (consp (cdr object))
+	(let ((pretty "("))
+	  (while object
+	    (setq pretty
+		  (concat pretty
+			  (trie--edebug-pretty-print (pop object))
+			  (when object " "))))
+	  (concat pretty ")"))
+      (concat "(" (trie--edebug-pretty-print (car object))
+	      " . " (trie--edebug-pretty-print (cdr object)) ")")))
    (t (prin1-to-string object))))
 
 
