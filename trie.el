@@ -472,12 +472,13 @@ If START or END is negative, it counts from the end."
   "Find the first occurrence of ITEM in LIST.
 Return the index of the matching item, or nil of not found.
 Comparison is done with 'equal."
-  (let (el (i 0))
+  (let ((i 0))
     (catch 'found
-      (while (setq el (nth i list))
-        (when (equal item el) (throw 'found i))
-        (setq i (1+ i))
-        nil))))
+      (while (progn
+	       (when (equal item (car list)) (throw 'found i))
+	       (setq i (1+ i))
+	       (setq list (cdr list))))
+      nil)))
 
 
 (defsubst trie--seq-append (seq el)
