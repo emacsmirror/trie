@@ -5,7 +5,7 @@
 ;; Copyright (C) 2008-2009 Toby Cubitt
 
 ;; Author: Toby Cubitt <toby-predictive@dr-qubit.org>
-;; Version: 0.2.2
+;; Version: 0.2.3
 ;; Keywords: trie, ternary search tree, completion
 ;; URL: http://www.dr-qubit.org/emacs.php
 
@@ -147,6 +147,9 @@
 
 ;;; Change Log:
 ;;
+;; Version 0.2.3
+;; * bug-fix in `trie--edebug-pretty-print'
+;;
 ;; Version 0.2.2
 ;; * added `edebug-prin1' and `edebug-prin1-to-string' advice to prevent
 ;;   edebug hanging whilst printing large tries
@@ -158,7 +161,7 @@
 ;; * Replaced wildcard searches with regexp searches, using the tNFA.el
 ;;   tagged non-deterministic finite state automata library. This is
 ;;   both more general *and* more efficient.
-;; * Bug fix in `trie--do-regexp-search'
+;; * bug fix in `trie--do-regexp-search'
 ;;
 ;; Version 0.1
 ;; * Initial release (complete rewrite from scratch of tstree.el!)
@@ -166,7 +169,7 @@
 ;;   which has numerous advantages: self-balancing trees guarantee
 ;;   O(log n) complexity regardless of how the tree is built; deletion
 ;;   is now done properly.
-;; * unlike tstree.el, trie.el is general enough to implement all sorts
+;; * Unlike tstree.el, trie.el is general enough to implement all sorts
 ;;   of tries, not just ternary search trees (though these remain the
 ;;   default).
 ;; * Up to "tstree"->"trie" renaming, many functions are drop-in
@@ -1918,11 +1921,26 @@ elements that matched the corresponding groups, in order."
 	  (while object
 	    (setq pretty
 		  (concat pretty
-			  (trie--edebug-pretty-print (pop object))
+			  (trie--edebug-pretty-print
+			   (if (atom object)
+			       (prog1
+				   (trie--edebug-pretty-print object)
+				 (setq object nil))
+			     (pop object)))
 			  (when object " "))))
 	  (concat pretty ")"))
       (concat "(" (trie--edebug-pretty-print (car object))
 	      " . " (trie--edebug-pretty-print (cdr object)) ")")))
+   ((vectorp object)
+    (let ((pretty "[") (len (length object)))
+      (dotimes (i (1- len))
+	(setq pretty
+	      (concat pretty
+		      (trie--edebug-pretty-print (aref object i))
+		      " ")))
+      (concat pretty
+	      (trie--edebug-pretty-print (aref object (1- len)))
+	      "]")))
    (t (prin1-to-string object))))
 
 
