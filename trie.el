@@ -1883,23 +1883,87 @@ elements that matched the corresponding groups, in order."
 
 
 ;; ----------------------------------------------------------------
-;;               Pretty-print tries during edebug
+;;            Pretty-print tries during edebug
 
-;; We use `cedet-edebug-add-print-override' from cedet-edebug.el to make
-;; edebug print "#<trie>" instead of the full print form for
-;; tries. (This is cleaner than using aliases or advice.)
+;; Note:
+;; -----
+
+;; We advise the `edebug-prin1' and `edebug-prin1-to-string' functions
+;; (actually, aliases) so that they pring "#<trie>" instead of the full
+;; print form for tries.
 ;;
 ;; This is because, if left to its own devices, edebug hangs for ages
 ;; whilst printing large tries, and you either have to wait for a *very*
 ;; long time for it to finish, or kill Emacs entirely. (Even C-g C-g
-;; fails!) Since the print form of a trie is practically
-;; incomprehensible anyway, we don't lose much by doing this.
+;; fails!)
+;;
+;; Since the print form of a trie is practically incomprehensible
+;; anyway, we don't lose much by doing this. If you *really* want to
+;; print tries in full whilst edebugging, despite this warning, disable
+;; the advice.
+;;
+;; FIXME: Should use `cedet-edebug-prin1-extensions' instead of advice
+;;        when `cedet-edebug' is loaded, though I believe this still
+;;        works in that case.
 
-(require 'cedet-edebug)
 
-(defun trie-pretty-print (trie) "#<trie>")
+(eval-when-compile
+  (require 'edebug)
+  (require 'advice))
 
-(cedet-edebug-add-print-override 'trie-p 'trie-pretty-print)
+
+(defun trie--edebug-pretty-print (object)
+  (cond
+   ((trie-p object) "#<trie>")
+   ((consp object)
+    (if (consp (cdr object))
+	(let ((pretty "("))
+	  (while object
+	    (setq pretty
+		  (concat pretty
+			  (trie--edebug-pretty-print
+			   (if (atom object)
+			       (prog1
+				   (trie--edebug-pretty-print object)
+				 (setq object nil))
+			     (pop object)))
+			  (when object " "))))
+	  (concat pretty ")"))
+      (concat "(" (trie--edebug-pretty-print (car object))
+	      " . " (trie--edebug-pretty-print (cdr object)) ")")))
+   ((vectorp object)
+    (let ((pretty "[") (len (length object)))
+      (dotimes (i (1- len))
+	(setq pretty
+	      (concat pretty
+		      (trie--edebug-pretty-print (aref object i))
+		      " ")))
+      (concat pretty
+	      (trie--edebug-pretty-print (aref object (1- len)))
+	      "]")))
+   (t (prin1-to-string object))))
+
+
+(ad-define-subr-args 'edebug-prin1 '(object &optional printcharfun))
+
+(defadvice edebug-prin1
+  (around trie activate compile preactivate)
+  (let ((pretty (trie--edebug-pretty-print object)))
+    (if pretty
+	(progn
+	  (prin1 pretty printcharfun)
+	  (setq ad-return-value pretty))
+    ad-do-it)))
+
+
+(ad-define-subr-args 'edebug-prin1-to-string '(object &optional noescape))
+
+(defadvice edebug-prin1-to-string
+  (around trie activate compile preactivate)
+  (let ((pretty (trie--edebug-pretty-print object)))
+    (if pretty
+	(setq ad-return-value pretty)
+      ad-do-it)))
 
 
 
