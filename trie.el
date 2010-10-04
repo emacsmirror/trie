@@ -1244,8 +1244,8 @@ element stored in the trie.)"
 ;; -------------------
 ;; For queries ranked in anything other than lexical order, we use a
 ;; partial heap-sort to find the k=MAXNUM highest ranked matches among
-;; the n possibile matches. This has worst-case time complexity O(n log
-;; k), and is both simple and elegant. An optimal algorithm
+;; the n possibile matches. This has worst-case time complexity
+;; O(n log k), and is both simple and elegant. An optimal algorithm
 ;; (e.g. partial quick-sort discarding the irrelevant partition at each
 ;; step) would have complexity O(n + k log k), but is probably not worth
 ;; the extra coding effort, and would have worse space complexity unless
@@ -1889,7 +1889,7 @@ elements that matched the corresponding groups, in order."
 ;; -----
 
 ;; We advise the `edebug-prin1' and `edebug-prin1-to-string' functions
-;; (actually, aliases) so that they pring "#<trie>" instead of the full
+;; (actually, aliases) so that they print "#<trie>" instead of the full
 ;; print form for tries.
 ;;
 ;; This is because, if left to its own devices, edebug hangs for ages
@@ -1897,14 +1897,18 @@ elements that matched the corresponding groups, in order."
 ;; long time for it to finish, or kill Emacs entirely. (Even C-g C-g
 ;; fails!)
 ;;
+;; We do this also for lists of tries, since those occur quite often,
+;; but not for other sequence types or deeper nested structures, to keep
+;; the implementation as simple as possible.
+;;
 ;; Since the print form of a trie is practically incomprehensible
 ;; anyway, we don't lose much by doing this. If you *really* want to
 ;; print tries in full whilst edebugging, despite this warning, disable
 ;; the advice.
 ;;
-;; FIXME: Should use `cedet-edebug-prin1-extensions' instead of advice
-;;        when `cedet-edebug' is loaded, though I believe this still
-;;        works in that case.
+;; FIXME: We could use `cedet-edebug-prin1-extensions' instead of advice
+;;        when `cedet-edebug' is loaded, though I believe the current
+;;        implementation still works in that case.
 
 
 (eval-when-compile
@@ -1915,33 +1919,24 @@ elements that matched the corresponding groups, in order."
 (defun trie--edebug-pretty-print (object)
   (cond
    ((trie-p object) "#<trie>")
-   ((consp object)
-    (if (consp (cdr object))
-	(let ((pretty "("))
-	  (while object
-	    (setq pretty
-		  (concat pretty
-			  (trie--edebug-pretty-print
-			   (if (atom object)
-			       (prog1
-				   (trie--edebug-pretty-print object)
-				 (setq object nil))
-			     (pop object)))
-			  (when object " "))))
-	  (concat pretty ")"))
-      (concat "(" (trie--edebug-pretty-print (car object))
-	      " . " (trie--edebug-pretty-print (cdr object)) ")")))
-   ((vectorp object)
-    (let ((pretty "[") (len (length object)))
-      (dotimes (i (1- len))
-	(setq pretty
-	      (concat pretty
-		      (trie--edebug-pretty-print (aref object i))
-		      " ")))
-      (concat pretty
-	      (trie--edebug-pretty-print (aref object (1- len)))
-	      "]")))
-   (t (prin1-to-string object))))
+   ((let ((tlist object) (test t))
+      (while (or (trie-p (car-safe tlist))
+		 (and tlist (setq test nil)))
+	(setq tlist (cdr tlist)))
+      test)
+    (concat "(" (mapconcat (lambda (dummy) "#<trie>") object " ") ")"))
+   ;; ((vectorp object)
+   ;;  (let ((pretty "[") (len (length object)))
+   ;;    (dotimes (i (1- len))
+   ;; 	(setq pretty
+   ;; 	      (concat pretty
+   ;; 		      (if (trie-p (aref object i))
+   ;; 			  "#<trie>" (prin1-to-string (aref object i))) " ")))
+   ;;    (concat pretty
+   ;; 	      (if (trie-p (aref object (1- len)))
+   ;; 		  "#<trie>" (prin1-to-string (aref object (1- len))))
+   ;; 	      "]")))
+   ))
 
 
 (ad-define-subr-args 'edebug-prin1 '(object &optional printcharfun))
