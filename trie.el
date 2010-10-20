@@ -2,10 +2,10 @@
 ;;; trie.el --- trie package
 
 
-;; Copyright (C) 2008-2009 Toby Cubitt
+;; Copyright (C) 2008-2010 Toby Cubitt
 
 ;; Author: Toby Cubitt <toby-predictive@dr-qubit.org>
-;; Version: 0.2.3
+;; Version: 0.2.4
 ;; Keywords: trie, ternary search tree, completion
 ;; URL: http://www.dr-qubit.org/emacs.php
 
@@ -146,6 +146,9 @@
 
 
 ;;; Change Log:
+;; Version 0.2.4
+;; * minor bug-fix to `trie--edebug-pretty-print' to print "nil" instead
+;;   of "()"
 ;;
 ;; Version 0.2.3
 ;; * bug-fix in `trie--edebug-pretty-print'
@@ -1919,6 +1922,7 @@ elements that matched the corresponding groups, in order."
 (defun trie--edebug-pretty-print (object)
   (cond
    ((trie-p object) "#<trie>")
+   ((null object) "nil")
    ((let ((tlist object) (test t))
       (while (or (trie-p (car-safe tlist))
 		 (and tlist (setq test nil)))
