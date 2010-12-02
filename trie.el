@@ -1599,11 +1599,10 @@ beginning and end of the regexp to get an unanchored match).
 
 If the regexp contains any non-shy grouping constructs, subgroup
 match data is included in the results. In this case, the car of
-each match (as returned by a call to `trie-stack-pop' is no
-longer just a key. Instead, it is a list whose first element is
-the matching key, and whose remaining elements are cons cells
-whose cars and cdrs give the start and end indices of the
-elements that matched the corresponding groups, in order.
+each match is no longer just a key. Instead, it is a list whose
+first element is the matching key, and whose remaining elements
+are cons cells whose cars and cdrs give the start and end indices
+of the elements that matched the corresponding groups, in order.
 
 The optional integer argument MAXNUM limits the results to the
 first MAXNUM matches. Otherwise, all matches are returned.
