@@ -889,7 +889,7 @@ FUNCTION is passed two arguments: an associative array, and the
 sequence it corresponds to.
 
 Optional argument TYPE (one of the symbols vector, lisp or
-string) sets the type of sequence passed to function. Defaults to
+string) sets the type of sequence passed to FUNCTION. Defaults to
 vector."
   (trie--mapc-internal function (trie--mapfun trie) (trie--root trie)
 		       (cond ((eq type 'string) "")
