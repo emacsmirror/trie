@@ -1942,7 +1942,8 @@ elements that matched the corresponding groups, in order."
    ))
 
 
-(ad-define-subr-args 'edebug-prin1 '(object &optional printcharfun))
+(when (fboundp 'ad-define-subr-args)
+  (ad-define-subr-args 'edebug-prin1 '(object &optional printcharfun)))
 
 (defadvice edebug-prin1
   (around trie activate compile preactivate)
@@ -1954,7 +1955,8 @@ elements that matched the corresponding groups, in order."
     ad-do-it)))
 
 
-(ad-define-subr-args 'edebug-prin1-to-string '(object &optional noescape))
+(when (fboundp 'ad-define-subr-args)
+  (ad-define-subr-args 'edebug-prin1-to-string '(object &optional noescape)))
 
 (defadvice edebug-prin1-to-string
   (around trie activate compile preactivate)
