@@ -2,10 +2,10 @@
 ;;; trie.el --- trie package
 
 
-;; Copyright (C) 2008-2010 Toby Cubitt
+;; Copyright (C) 2008-2010, 2012 Toby Cubitt
 
 ;; Author: Toby Cubitt <toby-predictive@dr-qubit.org>
-;; Version: 0.2.4
+;; Version: 0.2.5
 ;; Keywords: trie, ternary search tree, completion
 ;; URL: http://www.dr-qubit.org/emacs.php
 
@@ -43,14 +43,14 @@
 ;; Lewenstein distance (though this last is not yet implemented in this
 ;; package - code contributions welcome!).
 ;;
-;; You create a ternary search tree using `trie-create', create an
-;; association using `trie-insert', retrieve an association using
-;; `trie-lookup', and map over a trie using `trie-map', `trie-mapc',
-;; `trie-mapcar', or `trie-mapf'. You can find completions of a prefix
-;; sequence using `trie-complete', or search for keys matching a regular
-;; expression using `trie-regexp-search'. Using `trie-stack', you can
-;; create an object that allows the contents of the trie to be used like
-;; a stack, useful for building other algorithms on top of tries;
+;; You create a trie using `trie-create', create an association using
+;; `trie-insert', retrieve an association using `trie-lookup', and map
+;; over a trie using `trie-map', `trie-mapc', `trie-mapcar', or
+;; `trie-mapf'. You can find completions of a prefix sequence using
+;; `trie-complete', or search for keys matching a regular expression
+;; using `trie-regexp-search'. Using `trie-stack', you can create an
+;; object that allows the contents of the trie to be used like a stack,
+;; useful for building other algorithms on top of tries;
 ;; `trie-stack-pop' pops elements off the stack one-by-one, in "lexical"
 ;; order, whilst `trie-stack-push' pushes things onto the
 ;; stack. Similarly, `trie-complete-stack', and `trie-regexp-stack'
@@ -72,17 +72,17 @@
 ;; Different Types of Trie
 ;; -----------------------
 ;; There are numerous ways to implement trie data structures internally,
-;; each with its own time and space trade-offs. By viewing a trie as a
-;; tree whose nodes are themselves lookup tables for key elements, this
-;; package is able to support all types of trie in a uniform
-;; manner. This relies on there existing (or you writing!) an Elisp
-;; implementation of the corresponding type of lookup table. The best
-;; type of trie to use will depend on what trade-offs are appropriate
-;; for your particular application. The following gives an overview of
-;; the advantages and disadvantages of various types of trie. (Not all
-;; of the underlying lookup tables have been implemented in Elisp yet,
-;; so using some of the trie types described below would require writing
-;; the missing Elisp package!)
+;; each with its own time- and space-efficiency trade-offs. By viewing a
+;; trie as a tree whose nodes are themselves lookup tables for key
+;; elements, this package is able to support all types of trie in a
+;; uniform manner. This relies on there existing (or you writing!) an
+;; Elisp implementation of the corresponding type of lookup table. The
+;; best type of trie to use will depend on what trade-offs are
+;; appropriate for your particular application. The following gives an
+;; overview of the advantages and disadvantages of various types of
+;; trie. (Not all of the underlying lookup tables have been implemented
+;; in Elisp yet, so using some of the trie types described below would
+;; require writing the missing Elisp package!)
 ;;
 ;;
 ;; One of the most effective all-round implementations of a trie is a
@@ -146,6 +146,13 @@
 
 
 ;;; Change Log:
+;; Version 0.2.5
+;; * removed `trie--avl-transform-for-print' and
+;;   `trie--avl-transform-from-read', since Emacs has supported
+;;   printing and reading circular data structures for a long time now,
+;;   rendering these transormers obsolete (note that `print-circle'
+;;   *must* be enabled now when printing an avl trie)
+;;
 ;; Version 0.2.4
 ;; * minor bug-fix to `trie--edebug-pretty-print' to print "nil" instead
 ;;   of "()"
@@ -202,6 +209,9 @@
 ;;; ================================================================
 ;;;                   Pre-defined trie types
 
+(defconst trie--types '(avl))
+
+
 ;; --- avl-tree ---
 (put 'avl :trie-createfun
      (lambda (cmpfun seq) (avl-tree-create cmpfun)))
@@ -213,8 +223,6 @@
 (put 'avl :trie-stack-createfun 'avl-tree-stack)
 (put 'avl :trie-stack-popfun 'avl-tree-stack-pop)
 (put 'avl :trie-stack-emptyfun 'avl-tree-stack-empty-p)
-(put 'avl :trie-transform-for-print 'trie--avl-transform-for-print)
-(put 'avl :trie-transform-from-read 'trie--avl-transform-from-read)
 
 
 
@@ -234,50 +242,20 @@
    (:constructor trie--create
 		 (comparison-function &optional (type 'avl)
 		  &aux
-		  (createfun
-		   (or (get type :trie-createfun)
-		       (error "trie--create:\
- unknown trie TYPE, %s" type)))
-		  (insertfun
-		   (or (get type :trie-insertfun)
-		       (error "trie--create:\
- unknown trie TYPE, %s" type)))
-		  (deletefun
-		   (or (get type :trie-deletefun)
-		       (error "trie--create:\
- unknown trie TYPE, %s" type)))
-		  (lookupfun
-		   (or (get type :trie-lookupfun)
-		       (error "trie--create:\
- unknown trie TYPE, %s" type)))
-		  (mapfun
-		   (or (get type :trie-mapfun)
-		       (error "trie--create:\
- unknown trie TYPE, %s" type)))
-		  (emptyfun
-		   (or (get type :trie-emptyfun)
-		       (error "trie--create:\
- unknown trie TYPE, %s" type)))
-		  (stack-createfun
-		   (or (get type :trie-stack-createfun)
-		       (error "trie--create:\
- unknown trie TYPE, %s" type)))
-		  (stack-popfun
-		   (or (get type :trie-stack-popfun)
-		       (error "trie--create:\
- unknown trie TYPE, %s" type)))
-		  (stack-emptyfun
-		   (or (get type :trie-stack-emptyfun)
-		       (error "trie--create:\
- unknown trie TYPE, %s" type)))
-		  (transform-for-print
-		   (or (get type :trie-transform-for-print)
-		       (error "trie--create:\
- unknown trie TYPE, %s" type)))
-		  (transform-from-read
-		   (or (get type :trie-transform-from-read)
-		       (error "trie--create:\
- unknown trie TYPE, %s" type)))
+		  (dummy
+		   (or (memq type trie--types)
+		       (error "trie--create: unknown trie TYPE, %s" type)))
+		  (createfun (get type :trie-createfun))
+		  (insertfun (get type :trie-insertfun))
+		  (deletefun (get type :trie-deletefun))
+		  (lookupfun (get type :trie-lookupfun))
+		  (mapfun (get type :trie-mapfun))
+		  (emptyfun (get type :trie-emptyfun))
+		  (stack-createfun (get type :trie-stack-createfun))
+		  (stack-popfun (get type :trie-stack-popfun))
+		  (stack-emptyfun (get type :trie-stack-emptyfun))
+		  (transform-for-print (get type :trie-transform-for-print))
+		  (transform-from-read (get type :trie-transform-from-read))
 		  (cmpfun (trie--wrap-cmpfun comparison-function))
 		  (root (trie--node-create-root createfun cmpfun))
 		  ))
@@ -293,8 +271,8 @@
 		  (stack-createfun 'avl-tree-stack)
 		  (stack-popfun 'avl-tree-stack-pop)
 		  (stack-emptyfun 'avl-tree-stack-empty-p)
-		  (transform-for-print 'trie--avl-transform-for-print)
-		  (transform-from-read 'trie--avl-transform-from-read)
+		  (transform-for-print nil)
+		  (transform-from-read nil)
 		  &aux
 		  (cmpfun (trie--wrap-cmpfun comparison-function))
 		  (root (trie--node-create-root createfun cmpfun))
