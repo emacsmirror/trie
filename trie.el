@@ -45,7 +45,7 @@
 ;; Lewenstein distance (though this last is not yet implemented in this
 ;; package - code contributions welcome!).
 ;;
-;; You create a trie using `trie-create', create an association using
+;; You create a trie using `make-trie', create an association using
 ;; `trie-insert', retrieve an association using `trie-lookup', and map
 ;; over a trie using `trie-map', `trie-mapc', `trie-mapcar', or
 ;; `trie-mapf'. You can find completions of a prefix sequence using
@@ -489,7 +489,8 @@ type of sequence as SEQ."
 ;;; ================================================================
 ;;;                     Basic trie operations
 
-(defalias 'trie-create 'trie--create
+;;;###autoload
+(defalias 'make-trie 'trie--create
   "Return a new trie that uses comparison function COMPARISON-FUNCTION.
 
 A trie stores sequences (strings, vectors or lists) along with
@@ -499,12 +500,17 @@ if the first is strictly smaller than the second.
 
 The optional argument TYPE specifies the type of trie to
 create. However, the only one that is currently implemented is
-the default, so this argument is useless. (See also
-`trie-create-custom'.)")
+the default, so this argument is useless for now.
+
+(See also `make-trie-custom'.)")
 
 
+;;;###autoload
+(defalias 'trie-create 'make-trie)
 
-(defalias 'trie-create-custom 'trie--create-custom
+
+;;;###autoload
+(defalias 'make-trie-custom 'trie--create-custom
   "Return a new trie that uses comparison function COMPARISON-FUNCTION.
 
 A trie stores sequences (strings, vectors or lists) along with
@@ -609,6 +615,10 @@ original usable form.
 Warning: to avoid nasty dynamic scoping bugs, the supplied
 functions must *never* bind any variables with names commencing
 \"--\".")
+
+
+;;;###autoload
+(defalias 'trie-create-custom 'make-trie-custom)
 
 
 
