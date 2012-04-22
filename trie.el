@@ -6,7 +6,9 @@
 
 ;; Author: Toby Cubitt <toby-predictive@dr-qubit.org>
 ;; Version: 0.2.5
-;; Keywords: trie, ternary search tree, completion
+;; Keywords: extensions, matching, data structures
+;;           trie, ternary search tree, tree, completion, regexp
+;; Package-Requires: ((emacs "24.1") (tNFA "0.1.1") (heap "0.3"))
 ;; URL: http://www.dr-qubit.org/emacs.php
 
 
@@ -140,12 +142,12 @@
 ;; could even write a custom type of underlying lookup table, optimised
 ;; for your specific needs.
 ;;
-;;
 ;; This package uses the AVL tree package avl-tree.el, the tagged NFA
 ;; package tNFA.el, and the heap package heap.el.
 
 
 ;;; Change Log:
+;;
 ;; Version 0.2.5
 ;; * removed `trie--avl-transform-for-print' and
 ;;   `trie--avl-transform-from-read', since Emacs has supported
