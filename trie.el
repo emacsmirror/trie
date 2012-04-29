@@ -1,4 +1,3 @@
-
 ;;; trie.el --- trie package
 
 
@@ -10,148 +9,142 @@
 ;;           trie, ternary search tree, tree, completion, regexp
 ;; Package-Requires: ((emacs "24.1") (tNFA "0.1.1") (heap "0.3"))
 ;; URL: http://www.dr-qubit.org/emacs.php
-
+;; Repository: http://www.dr-qubit.org/git/predictive.git
 
 ;; This file is part of Emacs.
 ;;
-;; GNU Emacs is free software: you can redistribute it and/or modify
-;; it under the terms of the GNU General Public License as published by
-;; the Free Software Foundation, either version 3 of the License, or
-;; (at your option) any later version.
+;; GNU Emacs is free software: you can redistribute it and/or modify it under
+;; the terms of the GNU General Public License as published by the Free
+;; Software Foundation, either version 3 of the License, or (at your option)
+;; any later version.
 ;;
-;; GNU Emacs is distributed in the hope that it will be useful,
-;; but WITHOUT ANY WARRANTY; without even the implied warranty of
-;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-;; GNU General Public License for more details.
+;; GNU Emacs is distributed in the hope that it will be useful, but WITHOUT
+;; ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+;; FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+;; more details.
 ;;
-;; You should have received a copy of the GNU General Public License
-;; along with GNU Emacs.  If not, see <http://www.gnu.org/licenses/>.
+;; You should have received a copy of the GNU General Public License along
+;; with GNU Emacs.  If not, see <http://www.gnu.org/licenses/>.
 
 
 ;;; Commentary:
 ;;
 ;; Quick Overview
 ;; --------------
-;; A trie is a data structure used to store keys that are ordered
-;; sequences of elements (vectors, lists or strings in Elisp; strings
-;; are by far the most common), in such a way that both storage and
-;; retrieval are space- and time-efficient. But, more importantly, a
-;; variety of more advanced queries can also be performed efficiently:
-;; for example, returning all strings with a given prefix, searching for
-;; keys matching a given wildcard pattern or regular expression, or
-;; searching for all keys that match any of the above to within a given
-;; Lewenstein distance (though this last is not yet implemented in this
-;; package - code contributions welcome!).
+;; A trie is a data structure used to store keys that are ordered sequences of
+;; elements (vectors, lists or strings in Elisp; strings are by far the most
+;; common), in such a way that both storage and retrieval are space- and
+;; time-efficient. But, more importantly, a variety of more advanced queries
+;; can also be performed efficiently: for example, returning all strings with
+;; a given prefix, searching for keys matching a given wildcard pattern or
+;; regular expression, or searching for all keys that match any of the above
+;; to within a given Lewenstein distance (though this last is not yet
+;; implemented in this package - code contributions welcome!).
 ;;
 ;; You create a trie using `make-trie', create an association using
-;; `trie-insert', retrieve an association using `trie-lookup', and map
-;; over a trie using `trie-map', `trie-mapc', `trie-mapcar', or
-;; `trie-mapf'. You can find completions of a prefix sequence using
-;; `trie-complete', or search for keys matching a regular expression
-;; using `trie-regexp-search'. Using `trie-stack', you can create an
-;; object that allows the contents of the trie to be used like a stack,
-;; useful for building other algorithms on top of tries;
-;; `trie-stack-pop' pops elements off the stack one-by-one, in "lexical"
-;; order, whilst `trie-stack-push' pushes things onto the
-;; stack. Similarly, `trie-complete-stack', and `trie-regexp-stack'
-;; create "lexically-ordered" stacks of query results.
+;; `trie-insert', retrieve an association using `trie-lookup', and map over a
+;; trie using `trie-map', `trie-mapc', `trie-mapcar', or `trie-mapf'. You can
+;; find completions of a prefix sequence using `trie-complete', or search for
+;; keys matching a regular expression using `trie-regexp-search'. Using
+;; `trie-stack', you can create an object that allows the contents of the trie
+;; to be used like a stack, useful for building other algorithms on top of
+;; tries; `trie-stack-pop' pops elements off the stack one-by-one, in
+;; "lexical" order, whilst `trie-stack-push' pushes things onto the
+;; stack. Similarly, `trie-complete-stack', and `trie-regexp-stack' create
+;; "lexically-ordered" stacks of query results.
 ;;
-;; Note that there are two uses for a trie: as a lookup table, in which
-;; case only the presence or absence of a key in the trie is
-;; significant, or as an associative array, in which case each key
-;; carries some associated data. Libraries for other data structure
-;; often only implement lookup tables, leaving it up to you to implement
-;; an associative array on top of this (by storing key+data pairs in the
-;; data structure's keys, then defining a comparison function that only
-;; compares the key part). For a trie, however, the underlying data
-;; structures naturally support associative arrays at no extra cost, so
-;; this package does the opposite: it implements associative arrays, and
-;; leaves it up to you to use them as lookup tables if you so desire.
+;; Note that there are two uses for a trie: as a lookup table, in which case
+;; only the presence or absence of a key in the trie is significant, or as an
+;; associative array, in which case each key carries some associated
+;; data. Libraries for other data structure often only implement lookup
+;; tables, leaving it up to you to implement an associative array on top of
+;; this (by storing key+data pairs in the data structure's keys, then defining
+;; a comparison function that only compares the key part). For a trie,
+;; however, the underlying data structures naturally support associative
+;; arrays at no extra cost, so this package does the opposite: it implements
+;; associative arrays, and leaves it up to you to use them as lookup tables if
+;; you so desire.
 ;;
 ;;
 ;; Different Types of Trie
 ;; -----------------------
-;; There are numerous ways to implement trie data structures internally,
-;; each with its own time- and space-efficiency trade-offs. By viewing a
-;; trie as a tree whose nodes are themselves lookup tables for key
-;; elements, this package is able to support all types of trie in a
-;; uniform manner. This relies on there existing (or you writing!) an
-;; Elisp implementation of the corresponding type of lookup table. The
-;; best type of trie to use will depend on what trade-offs are
-;; appropriate for your particular application. The following gives an
-;; overview of the advantages and disadvantages of various types of
-;; trie. (Not all of the underlying lookup tables have been implemented
-;; in Elisp yet, so using some of the trie types described below would
-;; require writing the missing Elisp package!)
+;; There are numerous ways to implement trie data structures internally, each
+;; with its own time- and space-efficiency trade-offs. By viewing a trie as a
+;; tree whose nodes are themselves lookup tables for key elements, this
+;; package is able to support all types of trie in a uniform manner. This
+;; relies on there existing (or you writing!) an Elisp implementation of the
+;; corresponding type of lookup table. The best type of trie to use will
+;; depend on what trade-offs are appropriate for your particular
+;; application. The following gives an overview of the advantages and
+;; disadvantages of various types of trie. (Not all of the underlying lookup
+;; tables have been implemented in Elisp yet, so using some of the trie types
+;; described below would require writing the missing Elisp package!)
 ;;
 ;;
-;; One of the most effective all-round implementations of a trie is a
-;; ternary search tree, which can be viewed as a tree of binary
-;; trees. If basic binary search trees are used for the nodes of the
-;; trie, we get a standard ternary search tree. If self-balancing binary
-;; trees are used (e.g. AVL or red-black trees), we get a self-balancing
-;; ternary search tree. If splay trees are used, we get yet another
-;; self-organising variant of a ternary search tree. All ternary search
-;; trees have, in common, good space-efficiency. The time-efficiency of
-;; the various trie operations is also good, assuming the underlying
-;; binary trees are balanced. Under that assumption, all variants of
-;; ternary search trees described below have the same asymptotic
+;; One of the most effective all-round implementations of a trie is a ternary
+;; search tree, which can be viewed as a tree of binary trees. If basic binary
+;; search trees are used for the nodes of the trie, we get a standard ternary
+;; search tree. If self-balancing binary trees are used (e.g. AVL or red-black
+;; trees), we get a self-balancing ternary search tree. If splay trees are
+;; used, we get yet another self-organising variant of a ternary search
+;; tree. All ternary search trees have, in common, good space-efficiency. The
+;; time-efficiency of the various trie operations is also good, assuming the
+;; underlying binary trees are balanced. Under that assumption, all variants
+;; of ternary search trees described below have the same asymptotic
 ;; time-complexity for all trie operations.
 ;;
-;; Self-balancing trees ensure the underlying binary trees are always
-;; close to perfectly balanced, with the usual trade-offs between the
-;; different the types of self-balancing binary tree: AVL trees are
-;; slightly more efficient for lookup operations than red-black trees,
-;; at a cost of slightly less efficienct insertion operations, and less
-;; efficient deletion operations. Splay trees give good average-case
-;; complexity and are simpler to implement than AVL or red-black trees
-;; (which can mean they're faster in practice!), at the expense of poor
-;; worst-case complexity.
+;; Self-balancing trees ensure the underlying binary trees are always close to
+;; perfectly balanced, with the usual trade-offs between the different the
+;; types of self-balancing binary tree: AVL trees are slightly more efficient
+;; for lookup operations than red-black trees, at a cost of slightly less
+;; efficienct insertion operations, and less efficient deletion
+;; operations. Splay trees give good average-case complexity and are simpler
+;; to implement than AVL or red-black trees (which can mean they're faster in
+;; practice!), at the expense of poor worst-case complexity.
 ;;
 ;; If your tries are going to be static (i.e. created once and rarely
 ;; modified), then using perfectly balanced binary search trees might be
-;; appropriate. Perfectly balancing the binary trees is very
-;; inefficient, but it only has to be when the trie is first created or
-;; modified. Lookup operations will then be as efficient as possible for
-;; ternary search trees, and the implementation will also be simpler (so
-;; probably faster) than a self-balancing tree, without the space and
-;; time overhead required to keep track of rebalancing.
+;; appropriate. Perfectly balancing the binary trees is very inefficient, but
+;; it only has to be when the trie is first created or modified. Lookup
+;; operations will then be as efficient as possible for ternary search trees,
+;; and the implementation will also be simpler (so probably faster) than a
+;; self-balancing tree, without the space and time overhead required to keep
+;; track of rebalancing.
 ;;
-;; On the other hand, adding data to a binary search tree in a random
-;; order usually results in a reasonably balanced tree. If this is the
-;; likely scenario, using a basic binary tree without bothering to
-;; balance it at all might be quite efficient, and, being even simpler
-;; to implement, could be quite fast overall.
+;; On the other hand, adding data to a binary search tree in a random order
+;; usually results in a reasonably balanced tree. If this is the likely
+;; scenario, using a basic binary tree without bothering to balance it at all
+;; might be quite efficient, and, being even simpler to implement, could be
+;; quite fast overall.
 ;;
 ;;
-;; A digital trie is a different implementation of a trie, which can be
-;; viewed as a tree of arrays, and has different space- and
-;; time-complexities than a ternary search tree. Roughly speaking, a
-;; digital trie has worse space-complexity, but better
-;; time-complexity. Using hash tables instead of arrays for the nodes
-;; gives something similar to a digital trie, potentially with better
-;; space-complexity and the same amortised time-complexity, but at the
-;; expense of occasional significant inefficiency when inserting and
-;; deleting (whenever a hash table has to be resized). Indeed, an array
-;; can be viewed as a perfect hash table, but as such it requires the
-;; number of possible values to be known in advance.
+;; A digital trie is a different implementation of a trie, which can be viewed
+;; as a tree of arrays, and has different space- and time-complexities than a
+;; ternary search tree. Roughly speaking, a digital trie has worse
+;; space-complexity, but better time-complexity. Using hash tables instead of
+;; arrays for the nodes gives something similar to a digital trie, potentially
+;; with better space-complexity and the same amortised time-complexity, but at
+;; the expense of occasional significant inefficiency when inserting and
+;; deleting (whenever a hash table has to be resized). Indeed, an array can be
+;; viewed as a perfect hash table, but as such it requires the number of
+;; possible values to be known in advance.
 ;;
-;; Finally, if you really need optimal efficiency from your trie, you
-;; could even write a custom type of underlying lookup table, optimised
-;; for your specific needs.
+;; Finally, if you really need optimal efficiency from your trie, you could
+;; even write a custom type of underlying lookup table, optimised for your
+;; specific needs.
 ;;
-;; This package uses the AVL tree package avl-tree.el, the tagged NFA
-;; package tNFA.el, and the heap package heap.el.
+;; This package uses the AVL tree package avl-tree.el, the tagged NFA package
+;; tNFA.el, and the heap package heap.el.
 
 
 ;;; Change Log:
 ;;
 ;; Version 0.2.5
 ;; * removed `trie--avl-transform-for-print' and
-;;   `trie--avl-transform-from-read', since Emacs has supported
-;;   printing and reading circular data structures for a long time now,
-;;   rendering these transormers obsolete (note that `print-circle'
-;;   *must* be enabled now when printing an avl trie)
+;;   `trie--avl-transform-from-read', since Emacs has supported printing and
+;;   reading circular data structures for a long time now, rendering these
+;;   transormers obsolete (note that `print-circle' *must* be enabled now when
+;;   printing an avl trie)
 ;;
 ;; Version 0.2.4
 ;; * minor bug-fix to `trie--edebug-pretty-print' to print "nil" instead
@@ -168,32 +161,30 @@
 ;; * bug-fix to result accumulation in `trie--do-regexp-search'
 ;;
 ;; Version 0.2
-;; * Replaced wildcard searches with regexp searches, using the tNFA.el
-;;   tagged non-deterministic finite state automata library. This is
-;;   both more general *and* more efficient.
+;; * Replaced wildcard searches with regexp searches, using the tNFA.el tagged
+;;   non-deterministic finite state automata library. This is both more
+;;   general *and* more efficient.
 ;; * bug fix in `trie--do-regexp-search'
 ;;
 ;; Version 0.1
 ;; * Initial release (complete rewrite from scratch of tstree.el!)
-;; * Ternary search trees are now implemented as a tree of avl trees,
-;;   which has numerous advantages: self-balancing trees guarantee
-;;   O(log n) complexity regardless of how the tree is built; deletion
-;;   is now done properly.
-;; * Unlike tstree.el, trie.el is general enough to implement all sorts
-;;   of tries, not just ternary search trees (though these remain the
-;;   default).
-;; * Up to "tstree"->"trie" renaming, many functions are drop-in
-;;   replacements for tstree.el functions. However, insertion and rank
-;;   functions are no longer stored in the data structure, so
-;;   corresponidng arguments are no longer optional. A single
-;;   `trie-complete' function now deals with sorting completions in both
-;;   lexical or arbitrary order, the ranking function being passed as an
-;;   optional argument in the latter case. And functions can no longer
-;;   operate over multiple data structures at once; i.e. they no longer
-;;   accept lists of trees as arguments. (These features belong in
+;; * Ternary search trees are now implemented as a tree of avl trees, which
+;;   has numerous advantages: self-balancing trees guarantee O(log n)
+;;   complexity regardless of how the tree is built; deletion is now done
+;;   properly.
+;; * Unlike tstree.el, trie.el is general enough to implement all sorts of
+;;   tries, not just ternary search trees (though these remain the default).
+;; * Up to "tstree"->"trie" renaming, many functions are drop-in replacements
+;;   for tstree.el functions. However, insertion and rank functions are no
+;;   longer stored in the data structure, so corresponidng arguments are no
+;;   longer optional. A single `trie-complete' function now deals with sorting
+;;   completions in both lexical or arbitrary order, the ranking function
+;;   being passed as an optional argument in the latter case. And functions
+;;   can no longer operate over multiple data structures at once; i.e. they no
+;;   longer accept lists of trees as arguments. (These features belong in
 ;;   higher level libraries, and the efficiency loss is negligible.)
-;; * `trie-wildcard-search' implements efficient shell-glob-like
-;;   wildcard searches of tries!
+;; * `trie-wildcard-search' implements efficient shell-glob-like wildcard
+;;   searches of tries!
 
 
 
@@ -1956,10 +1947,5 @@ elements that matched the corresponding groups, in order."
 
 
 (provide 'trie)
-
-
-;;; Local Variables:
-;;; fill-column: 72
-;;; End:
 
 ;;; trie.el ends here
