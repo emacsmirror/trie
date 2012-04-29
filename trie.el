@@ -1,5 +1,4 @@
-;;; trie.el --- trie package
-
+;;; trie.el --- Trie data structure
 
 ;; Copyright (C) 2008-2010, 2012  Free Software Foundation, Inc
 
