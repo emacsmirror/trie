@@ -6,7 +6,7 @@
 ;; Version: 0.2.5
 ;; Keywords: extensions, matching, data structures
 ;;           trie, ternary search tree, tree, completion, regexp
-;; Package-Requires: ((emacs "24.1") (tNFA "0.1.1") (heap "0.3"))
+;; Package-Requires: ((tNFA "0.1.1") (heap "0.3"))
 ;; URL: http://www.dr-qubit.org/emacs.php
 ;; Repository: http://www.dr-qubit.org/git/predictive.git
 
