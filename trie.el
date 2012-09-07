@@ -3,7 +3,7 @@
 ;; Copyright (C) 2008-2010, 2012  Free Software Foundation, Inc
 
 ;; Author: Toby Cubitt <toby-predictive@dr-qubit.org>
-;; Version: 0.2.5
+;; Version: 0.2.6
 ;; Keywords: extensions, matching, data structures
 ;;           trie, ternary search tree, tree, completion, regexp
 ;; Package-Requires: ((tNFA "0.1.1") (heap "0.3"))
@@ -213,6 +213,8 @@
 (put 'avl :trie-stack-createfun 'avl-tree-stack)
 (put 'avl :trie-stack-popfun 'avl-tree-stack-pop)
 (put 'avl :trie-stack-emptyfun 'avl-tree-stack-empty-p)
+(put 'avl :trie-transform-for-print 'trie--avl-transform-for-print)
+(put 'avl :trie-transform-from-read 'trie--avl-transform-from-read)
 
 
 
@@ -261,8 +263,8 @@
 		  (stack-createfun 'avl-tree-stack)
 		  (stack-popfun 'avl-tree-stack-pop)
 		  (stack-emptyfun 'avl-tree-stack-empty-p)
-		  (transform-for-print nil)
-		  (transform-from-read nil)
+		  (transform-for-print 'trie--avl-transform-for-print)
+		  (transform-from-read 'trie--avl-transform-from-read)
 		  &aux
 		  (cmpfun (trie--wrap-cmpfun comparison-function))
 		  (root (trie--node-create-root createfun cmpfun))
@@ -1908,17 +1910,17 @@ elements that matched the corresponding groups, in order."
 	(setq tlist (cdr tlist)))
       test)
     (concat "(" (mapconcat (lambda (dummy) "#<trie>") object " ") ")"))
-   ;; ((vectorp object)
-   ;;  (let ((pretty "[") (len (length object)))
-   ;;    (dotimes (i (1- len))
-   ;; 	(setq pretty
-   ;; 	      (concat pretty
-   ;; 		      (if (trie-p (aref object i))
-   ;; 			  "#<trie>" (prin1-to-string (aref object i))) " ")))
-   ;;    (concat pretty
-   ;; 	      (if (trie-p (aref object (1- len)))
-   ;; 		  "#<trie>" (prin1-to-string (aref object (1- len))))
-   ;; 	      "]")))
+;; ((vectorp object)
+;;  (let ((pretty "[") (len (length object)))
+;;    (dotimes (i (1- len))
+;; 	(setq pretty
+;; 	      (concat pretty
+;; 		      (if (trie-p (aref object i))
+;; 			  "#<trie>" (prin1-to-string (aref object i))) " ")))
+;;    (concat pretty
+;; 	      (if (trie-p (aref object (1- len)))
+;; 		  "#<trie>" (prin1-to-string (aref object (1- len))))
+;; 	      "]")))
    ))
 
 
