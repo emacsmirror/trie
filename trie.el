@@ -319,7 +319,9 @@
 ;; data is stored in the subtree cell of a terminal node
 (defalias 'trie--node-data 'trie--node-subtree)
 
-(defsetf trie--node-data (node) `(setf (trie--node-subtree ,node)))
+(defsetf trie--node-data trie--node-set-data)
+(defmacro trie--node-set-data (node data)
+  `(setf (trie--node-subtree ,node) ,data))
 
 (defmacro trie--node-data-p (node)
   ;; Return t if NODE is a data node, nil otherwise.
