@@ -1,4 +1,4 @@
-;;; trie.el --- Trie data structure
+;;; trie.el --- Trie data structure  -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2008-2010, 2012  Free Software Foundation, Inc
 
@@ -1501,7 +1501,7 @@ it is better to use one of those instead."
 ;;                        Regexp search
 
 (defun trie-regexp-search
-  (trie regexp &optional rankfun maxnum reverse filter resultfun type)
+  (trie regexp &optional rankfun maxnum reverse filter resultfun)
   "Return an alist containing all matches for REGEXP in TRIE
 along with their associated data, in the order defined by
 RANKFUN, defauling to \"lexical\" order (i.e. the order defined
@@ -1510,13 +1510,13 @@ completions are sorted in the reverse order. Returns nil if no
 completions are found.
 
 REGEXP is a regular expression, but it need not necessarily be a
-string. It must be a sequence (vector, list of string) whose
+string. It must be a sequence (vector, list, or string) whose
 elements are either elements of the same type as elements of the
-trie keys (which behave as literals in the regexp), or any of the
-usual regexp special characters and backslash constructs. If
-REGEXP is a string, it must be possible to apply `string' to
-individual elements of the keys stored in the trie. The matches
-returned in the alist will be sequences of the same type as KEY.
+trie keys (which behave as literals in the regexp), or a regexp
+special character or backslash construct. If REGEXP is a string,
+it must be possible to apply `string' to individual elements of
+the keys stored in the trie. The matches returned in the alist
+will be sequences of the same type as REGEXP.
 
 Only a subset of the full Emacs regular expression syntax is
 supported. There is no support for regexp constructs that are
@@ -1540,7 +1540,7 @@ first MAXNUM matches. Otherwise, all matches are returned.
 
 If specified, RANKFUN must accept two arguments, both cons
 cells. The car contains a sequence from the trie (of the same
-type as PREFIX), the cdr contains its associated data. It should
+type as REGEXP), the cdr contains its associated data. It should
 return non-nil if first argument is ranked strictly higher than
 the second, nil otherwise.
 
@@ -1629,7 +1629,7 @@ default key-data cons cell."
 
    ;; wildcard transition: map over all nodes in subtree
    ((tNFA-wildcard-p tNFA)
-    (let (state groups)
+    (let (state)
       (funcall mapfun
 	       (lambda (node)
 		 (unless (trie--node-data-p node)
