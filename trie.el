@@ -136,57 +136,6 @@
 ;; tNFA.el, and the heap package heap.el.
 
 
-;;; Change Log:
-;;
-;; Version 0.2.5
-;; * removed `trie--avl-transform-for-print' and
-;;   `trie--avl-transform-from-read', since Emacs has supported printing and
-;;   reading circular data structures for a long time now, rendering these
-;;   transormers obsolete (note that `print-circle' *must* be enabled now when
-;;   printing an avl trie)
-;;
-;; Version 0.2.4
-;; * minor bug-fix to `trie--edebug-pretty-print' to print "nil" instead
-;;   of "()"
-;;
-;; Version 0.2.3
-;; * bug-fix in `trie--edebug-pretty-print'
-;;
-;; Version 0.2.2
-;; * added `edebug-prin1' and `edebug-prin1-to-string' advice to prevent
-;;   edebug hanging whilst printing large tries
-;;
-;; Version 0.2.1
-;; * bug-fix to result accumulation in `trie--do-regexp-search'
-;;
-;; Version 0.2
-;; * Replaced wildcard searches with regexp searches, using the tNFA.el tagged
-;;   non-deterministic finite state automata library. This is both more
-;;   general *and* more efficient.
-;; * bug fix in `trie--do-regexp-search'
-;;
-;; Version 0.1
-;; * Initial release (complete rewrite from scratch of tstree.el!)
-;; * Ternary search trees are now implemented as a tree of avl trees, which
-;;   has numerous advantages: self-balancing trees guarantee O(log n)
-;;   complexity regardless of how the tree is built; deletion is now done
-;;   properly.
-;; * Unlike tstree.el, trie.el is general enough to implement all sorts of
-;;   tries, not just ternary search trees (though these remain the default).
-;; * Up to "tstree"->"trie" renaming, many functions are drop-in replacements
-;;   for tstree.el functions. However, insertion and rank functions are no
-;;   longer stored in the data structure, so corresponidng arguments are no
-;;   longer optional. A single `trie-complete' function now deals with sorting
-;;   completions in both lexical or arbitrary order, the ranking function
-;;   being passed as an optional argument in the latter case. And functions
-;;   can no longer operate over multiple data structures at once; i.e. they no
-;;   longer accept lists of trees as arguments. (These features belong in
-;;   higher level libraries, and the efficiency loss is negligible.)
-;; * `trie-wildcard-search' implements efficient shell-glob-like wildcard
-;;   searches of tries!
-
-
-
 ;;; Code:
 
 (eval-when-compile (require 'cl))
