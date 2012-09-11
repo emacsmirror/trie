@@ -153,7 +153,7 @@
 
 ;; --- avl-tree ---
 (put 'avl :trie-createfun
-     (lambda (cmpfun seq) (avl-tree-create cmpfun)))
+     (lambda (cmpfun _seq) (avl-tree-create cmpfun)))
 (put 'avl :trie-insertfun 'avl-tree-enter)
 (put 'avl :trie-deletefun 'avl-tree-delete)
 (put 'avl :trie-lookupfun 'avl-tree-member)
@@ -183,7 +183,7 @@
    (:constructor trie--create
 		 (comparison-function &optional (type 'avl)
 		  &aux
-		  (dummy
+		  (_dummy
 		   (or (memq type trie--types)
 		       (error "trie--create: unknown trie TYPE, %s" type)))
 		  (createfun (get type :trie-createfun))
@@ -350,7 +350,7 @@
 (defun trie--avl-transform-for-print (trie)
   ;; transform avl-tree based TRIE to print form.
   (trie-mapc-internal
-   (lambda (avl seq) (setf (avl-tree--cmpfun avl) nil))
+   (lambda (avl _seq) (setf (avl-tree--cmpfun avl) nil))
    trie))
 
 
@@ -358,7 +358,7 @@
   ;; transform avl-tree based TRIE from print form."
   (let ((--trie-avl-transform--cmpfun (trie--cmpfun trie)))
     (trie-mapc-internal
-     (lambda (avl seq)
+     (lambda (avl _seq)
        (setf (avl-tree--cmpfun avl) --trie-avl-transform--cmpfun))
      trie)))
 
@@ -443,7 +443,7 @@ The optional argument TYPE specifies the type of trie to
 create. However, the only one that is currently implemented is
 the default, so this argument is useless for now.
 
-(See also `make-trie-custom'.)")
+\(See also `make-trie-custom'.\)")
 
 
 ;;;###autoload
@@ -642,7 +642,7 @@ bind any variables with names commencing \"--\"."
       (setq node (funcall (trie--insertfun trie)
 			  (trie--node-subtree node)
 			  (trie--node-create (elt key i) key trie)
-			  (lambda (a b)
+			  (lambda (_a b)
 			    (setq --trie-insert--old-node-flag t) b))))
     ;; Create or update data node.
     (setq node (funcall (trie--insertfun trie)
@@ -1141,7 +1141,7 @@ element stored in the trie.)"
 
 
 (defun trie--stack-repopulate
-  (store reverse comparison-function lookupfun
+  (store reverse _comparison-function _lookupfun
 	 stack-createfun stack-popfun stack-emptyfun)
   ;; Recursively push children of the node at the head of STORE onto the
   ;; front of STORE, until a data node is reached.
@@ -1858,7 +1858,7 @@ elements that matched the corresponding groups, in order."
 		 (and tlist (setq test nil)))
 	(setq tlist (cdr tlist)))
       test)
-    (concat "(" (mapconcat (lambda (dummy) "#<trie>") object " ") ")"))
+    (concat "(" (mapconcat (lambda (_dummy) "#<trie>") object " ") ")"))
 ;; ((vectorp object)
 ;;  (let ((pretty "[") (len (length object)))
 ;;    (dotimes (i (1- len))
