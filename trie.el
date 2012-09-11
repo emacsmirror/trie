@@ -225,22 +225,44 @@
   transform-for-print transform-from-read print-form)
 
 
-(defun trie--wrap-cmpfun (cmpfun)
-  ;; wrap CMPFUN for use in a subtree
-  `(lambda (a b)
-     (setq a (trie--node-split a)
-	   b (trie--node-split b))
-     (cond ((eq a trie--terminator)
-	    (if (eq b trie--terminator) nil t))
-	   ((eq b trie--terminator) nil)
-	   (t (,cmpfun a b)))))
+(defmacro trie-lexical-binding-p ()
+  "Return non-nil if lexical binding is in effect, nil otherwise."
+  (let ((tempvar (make-symbol "x")))
+    `(let ((,tempvar nil)
+           (f (let ((,tempvar t)) (lambda () ,tempvar))))
+       (funcall f))))
 
 
-(defun trie--construct-equality-function (comparison-function)
-  ;; create equality function from trie comparison function
-  `(lambda (a b)
-     (and (not (,comparison-function a b))
-	  (not (,comparison-function b a)))))
+;; wrap CMPFUN for use in a subtree
+(if (trie-lexical-binding-p)
+    (defun trie--wrap-cmpfun (cmpfun)
+      (lambda (a b)
+	(setq a (trie--node-split a)
+	      b (trie--node-split b))
+	(cond ((eq a trie--terminator)
+	       (if (eq b trie--terminator) nil t))
+	      ((eq b trie--terminator) nil)
+	      (t (funcall cmpfun a b)))))
+  (defun trie--wrap-cmpfun (cmpfun)
+    `(lambda (a b)
+       (setq a (trie--node-split a)
+	     b (trie--node-split b))
+       (cond ((eq a trie--terminator)
+	      (if (eq b trie--terminator) nil t))
+	     ((eq b trie--terminator) nil)
+	     (t (,cmpfun a b))))))
+
+
+;; create equality function from trie comparison function
+(if (trie-lexical-binding-p)
+    (defun trie--construct-equality-function (comparison-function)
+      (lambda (a b)
+	 (and (not (funcall comparison-function a b))
+	      (not (funcall comparison-function b a)))))
+  (defun trie--construct-equality-function (comparison-function)
+    `(lambda (a b)
+       (and (not (,comparison-function a b))
+	    (not (,comparison-function b a))))))
 
 
 
