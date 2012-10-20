@@ -1861,9 +1861,8 @@ elements that matched the corresponding groups, in order."
 ;; print tries in full whilst edebugging, despite this warning, disable
 ;; the advice.
 ;;
-;; FIXME: We could use `cedet-edebug-prin1-extensions' instead of advice
-;;        when `cedet-edebug' is loaded, though I believe the current
-;;        implementation still works in that case.
+;; FIXME: We should probably use the `cust-print' features instead of advice
+;; here.
 
 
 (eval-when-compile
