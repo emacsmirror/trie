@@ -295,16 +295,16 @@
 (defsetf trie--node-data (node) (data)
   `(setf (trie--node-subtree ,node) ,data))
 
-(defmacro trie--node-data-p (node)
+(defsubst trie--node-data-p (node)
   ;; Return t if NODE is a data node, nil otherwise.
-  `(eq (trie--node-split ,node) trie--terminator))
+  (eq (trie--node-split node) trie--terminator))
 
-(defmacro trie--node-p (node)
+(defsubst trie--node-p (node)
   ;; Return t if NODE is a TRIE trie--node, nil otherwise.  Have to
   ;; define this ourselves, because we created a defstruct without any
   ;; identifying tags (i.e. (:type vector)) for efficiency, but this
   ;; means we can only perform a rudimentary and very unreliable test.
-  `(and (vectorp ,node) (= (length ,node) 2)))
+  (and (vectorp node) (= (length node) 2)))
 
 
 (defun trie--node-find (node seq lookupfun)
@@ -322,20 +322,20 @@
     node))
 
 
-(defmacro trie--find-data-node (node lookupfun)
+(defsubst trie--find-data-node (node lookupfun)
   ;; Return data node from NODE's subtree, or nil if NODE has no data
   ;; node in its subtree.
-  `(funcall ,lookupfun
-	    (trie--node-subtree ,node)
-	    (trie--node-create-dummy trie--terminator)
-	    nil))
+  (funcall lookupfun
+	   (trie--node-subtree node)
+	   (trie--node-create-dummy trie--terminator)
+	   nil))
 
 
-(defmacro trie--find-data (node lookupfun)
+(defsubst trie--find-data (node lookupfun)
   ;; Return data associated with sequence corresponding to NODE, or nil
   ;; if sequence has no associated data.
-  `(let ((node (trie--find-data-node ,node ,lookupfun)))
-     (when node (trie--node-data node))))
+  (let ((node (trie--find-data-node node lookupfun)))
+    (when node (trie--node-data node))))
 
 
 
@@ -360,12 +360,12 @@
       (setf (trie--print-form trie) nil))))
 
 
-(defmacro trie-transform-from-read-warn (trie)
+(defsubst trie-transform-from-read-warn (trie)
   "Transform TRIE from print form, with warning."
-  `(when (trie--print-form ,trie)
-     (warn (concat "Attempt to operate on trie in print-form;\
+  (when (trie--print-form trie)
+    (warn (concat "Attempt to operate on trie in print-form;\
  converting to normal form"))
-     (trie-transform-from-read ,trie)))
+    (trie-transform-from-read trie)))
 
 
 (defun trie--avl-transform-for-print (trie)
@@ -599,29 +599,51 @@ functions must *never* bind any variables with names commencing
 	   (trie--node-subtree (trie--root trie))))
 
 
-(defun trie-construct-sortfun (cmpfun &optional reverse)
-  "Construct function to compare key sequences, based on a CMPFUN
+(if (trie-lexical-binding-p)
+    (defun trie-construct-sortfun (cmpfun &optional reverse)
+      "Construct function to compare key sequences, based on a CMPFUN
 that compares individual elements of the sequence. Order is
 reversed if REVERSE is non-nil."
-  (if reverse
-      `(lambda (a b)
-	 (let (cmp)
+      (if reverse
+	  (lambda (a b)
+	    (catch 'compared
+	      (dotimes (i (min (length a) (length b)))
+		(cond ((funcall cmpfun (elt b i) (elt a i))
+		       (throw 'compared t))
+		      ((funcall cmpfun (elt a i) (elt b i))
+		       (throw 'compared nil))))
+	      (< (length a) (length b))))
+	(lambda (a b)
+	  (catch 'compared
+	    (dotimes (i (min (length a) (length b)))
+	      (cond ((funcall cmpfun (elt a i) (elt b i))
+		     (throw 'compared t))
+		    ((funcall cmpfun (elt b i) (elt a i))
+		     (throw 'compared nil))))
+	    (< (length a) (length b))))))
+
+  (defun trie-construct-sortfun (cmpfun &optional reverse)
+    "Construct function to compare key sequences, based on a CMPFUN
+that compares individual elements of the sequence. Order is
+reversed if REVERSE is non-nil."
+    (if reverse
+	`(lambda (a b)
 	   (catch 'compared
 	     (dotimes (i (min (length a) (length b)))
 	       (cond ((,cmpfun (elt b i) (elt a i))
 		      (throw 'compared t))
 		     ((,cmpfun (elt a i) (elt b i))
 		      (throw 'compared nil))))
-	     (< (length a) (length b)))))
-    `(lambda (a b)
-       (let (cmp)
+	     (< (length a) (length b))))
+      `(lambda (a b)
 	 (catch 'compared
 	   (dotimes (i (min (length a) (length b)))
 	     (cond ((,cmpfun (elt a i) (elt b i))
 		    (throw 'compared t))
 		   ((,cmpfun (elt b i) (elt a i))
 		    (throw 'compared nil))))
-	   (< (length a) (length b)))))))
+	   (< (length a) (length b))))))
+)
 
 
 
@@ -1208,98 +1230,100 @@ element stored in the trie.)"
 ;; haven't done any benchmarking, though, so feel free to do so and let
 ;; me know the results!)
 
-(defmacro trie--construct-accumulator (maxnum filter resultfun)
+(defsubst trie--construct-accumulator (maxnum filter resultfun)
   ;; Does what it says on the tin! | sed -e 's/tin/macro name/'
-  `(cond
-    ;; filter, maxnum, resultfun
-    ((and ,filter ,maxnum ,resultfun)
-     (lambda (seq data)
-       (when (funcall ,filter seq data)
-	 (aset trie--accumulate 0
-	       (cons (funcall ,resultfun seq data)
-		     (aref trie--accumulate 0)))
-	 (and (>= (length (aref trie--accumulate 0)) ,maxnum)
-	      (throw 'trie-accumulate--done nil)))))
-    ;; filter, maxnum, !resultfun
-    ((and ,filter ,maxnum (not ,resultfun))
-     (lambda (seq data)
-       (when (funcall ,filter seq data)
-	 (aset trie--accumulate 0
-	       (cons (cons seq data)
-		     (aref trie--accumulate 0)))
-	 (and (>= (length (aref trie--accumulate 0)) ,maxnum)
-	      (throw 'trie-accumulate--done nil)))))
-    ;; filter, !maxnum, resultfun
-    ((and ,filter (not ,maxnum) ,resultfun)
-     (lambda (seq data)
-       (when (funcall ,filter seq data)
-	 (aset trie--accumulate 0
-	       (cons (funcall ,resultfun seq data)
-		     (aref trie--accumulate 0))))))
-    ;; filter, !maxnum, !resultfun
-    ((and ,filter (not ,maxnum) (not ,resultfun))
-     (lambda (seq data)
-       (when (funcall ,filter seq data)
-	 (aset trie--accumulate 0
-	       (cons (cons seq data)
-		     (aref trie--accumulate 0))))))
-    ;; !filter, maxnum, resultfun
-    ((and (not ,filter) ,maxnum ,resultfun)
-     (lambda (seq data)
-       (aset trie--accumulate 0
-	     (cons (funcall ,resultfun seq data)
-		   (aref trie--accumulate 0)))
-       (and (>= (length (aref trie--accumulate 0)) ,maxnum)
-	    (throw 'trie-accumulate--done nil))))
-    ;; !filter, maxnum, !resultfun
-    ((and (not ,filter) ,maxnum (not ,resultfun))
-     (lambda (seq data)
-       (aset trie--accumulate 0
-	     (cons (cons seq data)
-		   (aref trie--accumulate 0)))
-       (and (>= (length (aref trie--accumulate 0)) ,maxnum)
-	    (throw 'trie-accumulate--done nil))))
-    ;; !filter, !maxnum, resultfun
-    ((and (not ,filter) (not ,maxnum) ,resultfun)
-     (lambda (seq data)
-       (aset trie--accumulate 0
-	     (cons (funcall ,resultfun seq data)
-		   (aref trie--accumulate 0)))))
-    ;; !filter, !maxnum, !resultfun
-    ((and (not ,filter) (not ,maxnum) (not ,resultfun))
-     (lambda (seq data)
-       (aset trie--accumulate 0
-	     (cons (cons seq data)
-		   (aref trie--accumulate 0)))))
-    ))
+  (declare (special trie--accumulate))
+  (cond
+   ;; filter, maxnum, resultfun
+   ((and filter maxnum resultfun)
+    (lambda (seq data)
+      (when (funcall filter seq data)
+	(aset trie--accumulate 0
+	      (cons (funcall resultfun seq data)
+		    (aref trie--accumulate 0)))
+	(and (>= (length (aref trie--accumulate 0)) maxnum)
+	     (throw 'trie-accumulate--done nil)))))
+   ;; filter, maxnum, !resultfun
+   ((and filter maxnum (not resultfun))
+    (lambda (seq data)
+      (when (funcall filter seq data)
+	(aset trie--accumulate 0
+	      (cons (cons seq data)
+		    (aref trie--accumulate 0)))
+	(and (>= (length (aref trie--accumulate 0)) maxnum)
+	     (throw 'trie-accumulate--done nil)))))
+   ;; filter, !maxnum, resultfun
+   ((and filter (not maxnum) resultfun)
+    (lambda (seq data)
+      (when (funcall filter seq data)
+	(aset trie--accumulate 0
+	      (cons (funcall resultfun seq data)
+		    (aref trie--accumulate 0))))))
+   ;; filter, !maxnum, !resultfun
+   ((and filter (not maxnum) (not resultfun))
+    (lambda (seq data)
+      (when (funcall filter seq data)
+	(aset trie--accumulate 0
+	      (cons (cons seq data)
+		    (aref trie--accumulate 0))))))
+   ;; !filter, maxnum, resultfun
+   ((and (not filter) maxnum resultfun)
+    (lambda (seq data)
+      (aset trie--accumulate 0
+	    (cons (funcall resultfun seq data)
+		  (aref trie--accumulate 0)))
+      (and (>= (length (aref trie--accumulate 0)) maxnum)
+	   (throw 'trie-accumulate--done nil))))
+   ;; !filter, maxnum, !resultfun
+   ((and (not filter) maxnum (not resultfun))
+    (lambda (seq data)
+      (aset trie--accumulate 0
+	    (cons (cons seq data)
+		  (aref trie--accumulate 0)))
+      (and (>= (length (aref trie--accumulate 0)) maxnum)
+	   (throw 'trie-accumulate--done nil))))
+   ;; !filter, !maxnum, resultfun
+   ((and (not filter) (not maxnum) resultfun)
+    (lambda (seq data)
+      (aset trie--accumulate 0
+	    (cons (funcall resultfun seq data)
+		  (aref trie--accumulate 0)))))
+   ;; !filter, !maxnum, !resultfun
+   ((and (not filter) (not maxnum) (not resultfun))
+    (lambda (seq data)
+      (aset trie--accumulate 0
+	    (cons (cons seq data)
+		  (aref trie--accumulate 0)))))
+   ))
 
 
 
-(defmacro trie--construct-ranked-accumulator (maxnum filter)
+(defsubst trie--construct-ranked-accumulator (maxnum filter)
   ;; Does what it says on the tin! | sed -e 's/tin/macro name/'
-  `(cond
-    ;; filter, maxnum
-    ((and ,filter ,maxnum)
-     (lambda (seq data)
-       (when (funcall ,filter seq data)
-	 (heap-add trie--accumulate (cons seq data))
-	 (and (> (heap-size trie--accumulate) ,maxnum)
-	      (heap-delete-root trie--accumulate)))))
-    ;; filter, !maxnum
-    ((and ,filter (not ,maxnum))
-     (lambda (seq data)
-       (when (funcall ,filter seq data)
-	 (heap-add trie--accumulate (cons seq data)))))
-    ;; !filter, maxnum
-    ((and (not ,filter) ,maxnum)
-     (lambda (seq data)
-       (heap-add trie--accumulate (cons seq data))
-       (and (> (heap-size trie--accumulate) ,maxnum)
-	    (heap-delete-root trie--accumulate))))
-    ;; !filter, !maxnum
-    ((and (not ,filter) (not ,maxnum))
-     (lambda (seq data)
-       (heap-add trie--accumulate (cons seq data))))))
+  (declare (special trie--accumulate))
+  (cond
+   ;; filter, maxnum
+   ((and filter maxnum)
+    (lambda (seq data)
+      (when (funcall filter seq data)
+	(heap-add trie--accumulate (cons seq data))
+	(and (> (heap-size trie--accumulate) maxnum)
+	     (heap-delete-root trie--accumulate)))))
+   ;; filter, !maxnum
+   ((and filter (not maxnum))
+    (lambda (seq data)
+      (when (funcall filter seq data)
+	(heap-add trie--accumulate (cons seq data)))))
+   ;; !filter, maxnum
+   ((and (not filter) maxnum)
+    (lambda (seq data)
+      (heap-add trie--accumulate (cons seq data))
+      (and (> (heap-size trie--accumulate) maxnum)
+	   (heap-delete-root trie--accumulate))))
+   ;; !filter, !maxnum
+   ((and (not filter) (not maxnum))
+    (lambda (seq data)
+      (heap-add trie--accumulate (cons seq data))))))
 
 
 
@@ -1316,6 +1340,8 @@ element stored in the trie.)"
   ;; the query function.
 
   ;; rename functions to help avoid dynamic-scoping bugs
+  ;; FIXME: not needed with lexical scoping
+  (declare (special trie--accumulate))
   `(let* ((--trie-accumulate--rankfun ,rankfun)
 	  (--trie-accumulate--filter ,filter)
 	  (--trie-accumulate--resultfun ,resultfun)
@@ -1330,7 +1356,7 @@ element stored in the trie.)"
 		    (not (funcall --trie-accumulate--rankfun a b))))
 		(when ,maxnum (1+ ,maxnum)))
 	     (make-vector 1 nil)))
-	  ;; construct function to accumulate completions
+	  ;; construct function to accumulate results
 	  (,accfun
 	   (if ,rankfun
 	       (trie--construct-ranked-accumulator
@@ -1342,28 +1368,28 @@ element stored in the trie.)"
      ;; accumulate results
      (catch 'trie-accumulate--done ,@body)
 
-     ;; return list of completions
+     ;; return list of results
      (cond
-      ;; for a ranked query, extract completions from heap
+      ;; for a ranked query, extract results from heap
       (,rankfun
-       (let (completions)
+       (let (results)
 	 ;; check for and delete duplicates if flag is set
 	 (if ,duplicates
 	     (while (not (heap-empty trie--accumulate))
 	       (if (equal (car (heap-root trie--accumulate))
-			  (caar completions))
+			  (caar results))
 		   (heap-delete-root trie--accumulate)
 		 (push (heap-delete-root trie--accumulate)
-		       completions)))
+		       results)))
 	   ;; skip duplicate checking if flag is not set
 	   (while (not (heap-empty trie--accumulate))
 	     (if ,resultfun
 		 (let ((res (heap-delete-root trie--accumulate)))
 		   (push (funcall ,resultfun (car res) (cdr res))
-			 completions))
+			 results))
 	       (push (heap-delete-root trie--accumulate)
-		     completions))))
-	 completions))
+		     results))))
+	 results))
 
       ;; for lexical query, reverse result list if MAXNUM supplied
       (,maxnum (nreverse (aref trie--accumulate 0)))
@@ -1527,8 +1553,8 @@ it is better to use one of those instead."
 along with their associated data, in the order defined by
 RANKFUN, defauling to \"lexical\" order (i.e. the order defined
 by the trie's comparison function).  If REVERSE is non-nil, the
-completions are sorted in the reverse order. Returns nil if no
-completions are found.
+results are sorted in the reverse order. Returns nil if no
+results are found.
 
 REGEXP is a regular expression, but it need not necessarily be a
 string. It must be a sequence (vector, list, or string) whose
@@ -1580,32 +1606,35 @@ default key-data cons cell."
   ;; convert trie from print-form if necessary
   (trie-transform-from-read-warn trie)
 
-  ;; massage rankfun to cope with grouping data
-  ;; FIXME: could skip this if REGEXP contains no grouping constructs
-  (when rankfun
-    (setq rankfun
-	  `(lambda (a b)
-	     ;; if car of argument contains a key+group list rather than
-	     ;; a straight key, remove group list
-	     ;; FIXME: the test for straight key, below, will fail if
-	     ;;        the key is a list, and the first element of the
-	     ;;        key is itself a list (there might be no easy way
-	     ;;        to fully fix this...)
-	     (unless (or (atom (car a))
-			 (and (listp (car a))
-			      (not (sequencep (caar a)))))
-	       (setq a (cons (caar a) (cdr a))))
-	     (unless (or (atom (car b))
-			 (and (listp (car b))
-			      (not (sequencep (caar b)))))
-	       (setq b (cons (caar b) (cdr b))))
-	     ;; call rankfun on massaged arguments
-	     (,rankfun a b))))
+  ;; rename function to mitigate against dynamic scoping bugs
+  ;; FIXME: not needed with lexical scoping
+  (let ((--trie-regexp-search--rankfun rankfun))
+    ;; massage rankfun to cope with grouping data
+    ;; FIXME: could skip this if REGEXP contains no grouping constructs
+    (when --trie-regexp-search--rankfun
+      (setq --trie-regexp-search--rankfun
+	  (lambda (a b)
+	    ;; if car of argument contains a key+group list rather than
+	    ;; a straight key, remove group list
+	    ;; FIXME: the test for straight key, below, will fail if
+	    ;;        the key is a list, and the first element of the
+	    ;;        key is itself a list (there might be no easy way
+	    ;;        to fully fix this...)
+	    (unless (or (atom (car a))
+			(and (listp (car a))
+			     (not (sequencep (caar a)))))
+	      (setq a (cons (caar a) (cdr a))))
+	    (unless (or (atom (car b))
+			(and (listp (car b))
+			     (not (sequencep (caar b)))))
+	      (setq b (cons (caar b) (cdr b))))
+	    ;; call rankfun on massaged arguments
+	    (funcall --trie-regexp-search--rankfun a b))))
 
-  ;; accumulate completions
+  ;; accumulate results
   (declare (special accumulator))
   (trie--accumulate-results
-   rankfun maxnum reverse filter resultfun accumulator nil
+   --trie-regexp-search--rankfun maxnum reverse filter resultfun accumulator nil
    (trie--do-regexp-search
     (trie--root trie)
     (tNFA-from-regexp regexp :test (trie--construct-equality-function
@@ -1614,7 +1643,7 @@ default key-data cons cell."
     (or (and maxnum reverse) (and (not maxnum) (not reverse)))
     (trie--comparison-function trie)
     (trie--lookupfun trie)
-    (trie--mapfun trie))))
+    (trie--mapfun trie)))))
 
 
 
@@ -1670,10 +1699,16 @@ default key-data cons cell."
 	       reverse)))
 
    (t ;; no wildcard transition: loop over all transitions
-    (let (node state)
+    ;; rename function to mitigate against dynamic scoping bugs
+    ;; FIXME: not needed with lexical scoping
+    (let ((--trie--do-regexp-search--cmpfun comparison-function)
+	  node state)
       (dolist (chr (sort (tNFA-transitions tNFA)
 			 (if reverse
-			     `(lambda (a b) (,comparison-function b a))
+			     (lambda (a b)
+			       (funcall
+				--trie--do-regexp-search--cmpfun
+				b a))
 			   comparison-function)))
 	(when (and (setq node (trie--node-find
 			       --trie--regexp-search--node
@@ -1795,16 +1830,22 @@ elements that matched the corresponding groups, in order."
 		    store))
 
 	     (t ;; non-wildcard transition: add all possible next nodes
-	      (dolist (chr (sort (tNFA-transitions state)
-				 (if reverse
-				     comparison-function
-				   `(lambda (a b)
-				      (,comparison-function b a)))))
-		(when (and (setq n (trie--node-find
-				    node (vector chr) lookupfun))
-			   (setq s (tNFA-next-state state chr pos)))
-		  (push (list (trie--seq-append seq chr) n s (1+ pos))
-			store)))
+	      ;; rename function to mitigate against lexical scoping bugs
+	      ;; FIXME: not needed with lexical scoping
+	      (let ((--trie--regexp-stack-repopulate--cmpfun
+		     comparison-function))
+		(dolist (chr (sort (tNFA-transitions state)
+				   (if reverse
+				       --trie--regexp-stack-repopulate--cmpfun
+				   (lambda (a b)
+				      (funcall
+				       --trie--regexp-stack-repopulate--cmpfun
+				       b a)))))
+		  (when (and (setq n (trie--node-find
+				      node (vector chr) lookupfun))
+			     (setq s (tNFA-next-state state chr pos)))
+		    (push (list (trie--seq-append seq chr) n s (1+ pos))
+			  store))))
 	      t)))  ; return t to keep looping
 
 	   ;; otherwise, stack element is a node stack...
