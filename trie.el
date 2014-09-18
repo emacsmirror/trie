@@ -1230,7 +1230,7 @@ element stored in the trie.)"
 ;; haven't done any benchmarking, though, so feel free to do so and let
 ;; me know the results!)
 
-(defsubst trie--construct-accumulator (maxnum filter resultfun)
+(defun trie--construct-accumulator (maxnum filter resultfun)
   ;; Does what it says on the tin! | sed -e 's/tin/macro name/'
   (declare (special trie--accumulate))
   (cond
@@ -1298,7 +1298,7 @@ element stored in the trie.)"
 
 
 
-(defsubst trie--construct-ranked-accumulator (maxnum filter)
+(defun trie--construct-ranked-accumulator (maxnum filter)
   ;; Does what it says on the tin! | sed -e 's/tin/macro name/'
   (declare (special trie--accumulate))
   (cond
@@ -1341,7 +1341,6 @@ element stored in the trie.)"
 
   ;; rename functions to help avoid dynamic-scoping bugs
   ;; FIXME: not needed with lexical scoping
-  (declare (special trie--accumulate))
   `(let* ((--trie-accumulate--rankfun ,rankfun)
 	  (--trie-accumulate--filter ,filter)
 	  (--trie-accumulate--resultfun ,resultfun)
@@ -1460,7 +1459,6 @@ default key-data cons cell."
 
   ;; accumulate completions
   (let (node)
-    (declare (special accumulator))
     (trie--accumulate-results
      rankfun maxnum reverse filter resultfun accumulator nil
      (mapc (lambda (pfx)
@@ -1606,56 +1604,59 @@ default key-data cons cell."
   ;; convert trie from print-form if necessary
   (trie-transform-from-read-warn trie)
 
-  ;; rename function to mitigate against dynamic scoping bugs
-  ;; FIXME: not needed with lexical scoping
+  ;; massage rankfun to cope with grouping data
+  ;; FIXME: could skip this if REGEXP contains no grouping constructs
+  ;; FIXME: crazy variable name is not needed with lexical scoping
   (let ((--trie-regexp-search--rankfun rankfun))
-    ;; massage rankfun to cope with grouping data
-    ;; FIXME: could skip this if REGEXP contains no grouping constructs
-    (when --trie-regexp-search--rankfun
-      (setq --trie-regexp-search--rankfun
-	  (lambda (a b)
-	    ;; if car of argument contains a key+group list rather than
-	    ;; a straight key, remove group list
-	    ;; FIXME: the test for straight key, below, will fail if
-	    ;;        the key is a list, and the first element of the
-	    ;;        key is itself a list (there might be no easy way
-	    ;;        to fully fix this...)
-	    (unless (or (atom (car a))
-			(and (listp (car a))
-			     (not (sequencep (caar a)))))
-	      (setq a (cons (caar a) (cdr a))))
-	    (unless (or (atom (car b))
-			(and (listp (car b))
-			     (not (sequencep (caar b)))))
-	      (setq b (cons (caar b) (cdr b))))
-	    ;; call rankfun on massaged arguments
-	    (funcall --trie-regexp-search--rankfun a b))))
+    (when rankfun
+      (setq rankfun
+	    (lambda (a b)
+	      ;; if car of argument contains a key+group list rather than a
+	      ;; straight key, remove group list
+	      ;; FIXME: the test for straight key, below, will fail if the key
+	      ;;        is a list, and the first element of the key is itself
+	      ;;        a list (there might be no easy way to fully fix
+	      ;;        this...)
+	      (unless (or (atom (car a))
+			  (and (listp (car a))
+			       (not (sequencep (caar a)))))
+		(setq a (cons (caar a) (cdr a))))
+	      (unless (or (atom (car b))
+			  (and (listp (car b))
+			       (not (sequencep (caar b)))))
+		(setq b (cons (caar b) (cdr b))))
+	      ;; call rankfun on massaged arguments
+	      (funcall --trie-regexp-search--rankfun a b))))
 
-  ;; accumulate results
-  (declare (special accumulator))
-  (trie--accumulate-results
-   --trie-regexp-search--rankfun maxnum reverse filter resultfun accumulator nil
-   (trie--do-regexp-search
-    (trie--root trie)
-    (tNFA-from-regexp regexp :test (trie--construct-equality-function
-				    (trie--comparison-function trie)))
-    (cond ((stringp regexp) "") ((listp regexp) ()) (t []))  0
-    (or (and maxnum reverse) (and (not maxnum) (not reverse)))
-    (trie--comparison-function trie)
-    (trie--lookupfun trie)
-    (trie--mapfun trie)))))
+    ;; accumulate results
+    (trie--accumulate-results rankfun maxnum reverse
+			      filter resultfun accumulator nil
+     (trie--do-regexp-search
+      (trie--root trie)
+      (tNFA-from-regexp regexp :test (trie--construct-equality-function
+				      (trie--comparison-function trie)))
+      (cond ((stringp regexp) "") ((listp regexp) ()) (t []))  0
+      (or (and maxnum reverse) (and (not maxnum) (not reverse)))
+      ;; FIXME: Is this a case where it would pay to replace these arguments
+      ;;        with dynamically-scoped variables, to save stack space during
+      ;;        the recursive calls to `trie--do-regexp-search'?
+      ;;        Alternatively, with lexical scoping, we could use a closure
+      ;;        for `trie--do-regexp-search' instead of a function.
+      (trie--comparison-function trie)
+      (trie--lookupfun trie)
+      (trie--mapfun trie)
+      accumulator))))
 
 
 
 (defun trie--do-regexp-search
   (--trie--regexp-search--node tNFA seq pos reverse
-			       comparison-function lookupfun mapfun)
+			       cmpfun lookupfun mapfun accumulator)
   ;; Search everything below the node --TRIE--REGEXP-SEARCH-NODE for
   ;; matches to the regexp encoded in tNFA. SEQ is the sequence
   ;; corresponding to NODE, POS is it's length. REVERSE is the usual
   ;; query argument, and the remaining arguments are the corresponding
   ;; trie functions.
-  (declare (special accumulator))
 
   ;; if NFA has matched and we're accumulating in normal order, check if
   ;; trie contains current string
@@ -1693,15 +1694,15 @@ default key-data cons cell."
 		     (trie--do-regexp-search
 		      node state
 		      (trie--seq-append seq (trie--node-split node))
-		      (1+ pos) reverse comparison-function
-		      lookupfun mapfun))))
+		      (1+ pos)
+		      reverse cmpfun lookupfun mapfun accumulator))))
 	       (trie--node-subtree --trie--regexp-search--node)
 	       reverse)))
 
    (t ;; no wildcard transition: loop over all transitions
     ;; rename function to mitigate against dynamic scoping bugs
     ;; FIXME: not needed with lexical scoping
-    (let ((--trie--do-regexp-search--cmpfun comparison-function)
+    (let ((--trie--do-regexp-search--cmpfun cmpfun)
 	  node state)
       (dolist (chr (sort (tNFA-transitions tNFA)
 			 (if reverse
@@ -1709,14 +1710,14 @@ default key-data cons cell."
 			       (funcall
 				--trie--do-regexp-search--cmpfun
 				b a))
-			   comparison-function)))
+			   cmpfun)))
 	(when (and (setq node (trie--node-find
 			       --trie--regexp-search--node
 			       (vector chr) lookupfun))
 		   (setq state (tNFA-next-state tNFA chr pos)))
 	  (trie--do-regexp-search
 	   node state (trie--seq-append seq chr) (1+ pos)
-	   reverse comparison-function lookupfun mapfun))))))
+	   reverse cmpfun lookupfun mapfun accumulator))))))
 
   ;; if NFA has matched and we're accumulating in reverse order, check if
   ;; trie contains current string
