@@ -48,9 +48,9 @@
 ;; `trie-stack', you can create an object that allows the contents of the trie
 ;; to be used like a stack, useful for building other algorithms on top of
 ;; tries; `trie-stack-pop' pops elements off the stack one-by-one, in
-;; "lexical" order, whilst `trie-stack-push' pushes things onto the
+;; "lexicographic" order, whilst `trie-stack-push' pushes things onto the
 ;; stack. Similarly, `trie-complete-stack', and `trie-regexp-stack' create
-;; "lexically-ordered" stacks of query results.
+;; "lexicographicly-ordered" stacks of query results.
 ;;
 ;; Note that there are two uses for a trie: as a lookup table, in which case
 ;; only the presence or absence of a key in the trie is significant, or as an
@@ -145,6 +145,7 @@
 
 
 
+
 ;;; ================================================================
 ;;;                   Pre-defined trie types
 
@@ -167,6 +168,7 @@
 
 
 
+
 ;;; ================================================================
 ;;;           Internal utility functions and macros
 
@@ -203,17 +205,17 @@
    (:constructor trie--create-custom
 		 (comparison-function
 		  &key
-		  (createfun 'avl-tree-create-bare)
-		  (insertfun 'avl-tree-enter)
-		  (deletefun 'avl-tree-delete)
-		  (lookupfun 'avl-tree-member)
-		  (mapfun 'avl-tree-mapc)
-		  (emptyfun 'avl-tree-empty)
-		  (stack-createfun 'avl-tree-stack)
-		  (stack-popfun 'avl-tree-stack-pop)
-		  (stack-emptyfun 'avl-tree-stack-empty-p)
-		  (transform-for-print 'trie--avl-transform-for-print)
-		  (transform-from-read 'trie--avl-transform-from-read)
+		  (createfun #'avl-tree-create-bare)
+		  (insertfun #'avl-tree-enter)
+		  (deletefun #'avl-tree-delete)
+		  (lookupfun #'avl-tree-member)
+		  (mapfun #'avl-tree-mapc)
+		  (emptyfun #'avl-tree-empty)
+		  (stack-createfun #'avl-tree-stack)
+		  (stack-popfun #'avl-tree-stack-pop)
+		  (stack-emptyfun #'avl-tree-stack-empty-p)
+		  (transform-for-print #'trie--avl-transform-for-print)
+		  (transform-from-read #'trie--avl-transform-from-read)
 		  &aux
 		  (cmpfun (trie--wrap-cmpfun comparison-function))
 		  (root (trie--node-create-root createfun cmpfun))
@@ -257,15 +259,16 @@
 (if (trie-lexical-binding-p)
     (defun trie--construct-equality-function (comparison-function)
       (lambda (a b)
-	 (and (not (funcall comparison-function a b))
-	      (not (funcall comparison-function b a)))))
+	 (not (or (funcall comparison-function a b)
+		  (funcall comparison-function b a)))))
   (defun trie--construct-equality-function (comparison-function)
     `(lambda (a b)
-       (and (not (,comparison-function a b))
-	    (not (,comparison-function b a))))))
+       (not (or (,comparison-function a b)
+		(,comparison-function b a))))))
 
 
 
+
 ;;; ----------------------------------------------------------------
 ;;;          Functions and macros for handling a trie node.
 
@@ -310,10 +313,9 @@
 (defun trie--node-find (node seq lookupfun)
   ;; Returns the node below NODE corresponding to SEQ, or nil if none
   ;; found.
-  (let ((len (length seq))
-	(i -1))
+  (let ((i -1))
     ;; descend trie until we find SEQ or run out of trie
-    (while (and node (< (incf i) len))
+    (while (and node (< (incf i) (length seq)))
       (setq node
 	    (funcall lookupfun
 		     (trie--node-subtree node)
@@ -339,6 +341,7 @@
 
 
 
+
 ;;; ----------------------------------------------------------------
 ;;;              print/read transformation functions
 
@@ -385,6 +388,7 @@
 
 
 
+
 ;;; ----------------------------------------------------------------
 ;;;                Replacements for CL functions
 
@@ -419,7 +423,7 @@ If START or END is negative, it counts from the end."
 (defun trie--position (item list)
   "Find the first occurrence of ITEM in LIST.
 Return the index of the matching item, or nil of not found.
-Comparison is done with 'equal."
+Comparison is done with `equal'."
   (let ((i 0))
     (catch 'found
       (while (progn
@@ -441,13 +445,13 @@ Comparison is done with 'equal."
   "Concatenate SEQ and SEQUENCES, and make the result the same
 type of sequence as SEQ."
   (cond
-   ((stringp seq) (apply 'concat  seq sequences))
-   ((vectorp seq) (apply 'vconcat seq sequences))
-   ((listp seq)	  (apply 'append  seq sequences))))
+   ((stringp seq) (apply #'concat  seq sequences))
+   ((vectorp seq) (apply #'vconcat seq sequences))
+   ((listp seq)	  (apply #'append  seq sequences))))
 
 
 
-
+
 ;;; ================================================================
 ;;;                     Basic trie operations
 
@@ -647,6 +651,7 @@ reversed if REVERSE is non-nil."
 
 
 
+
 ;; ----------------------------------------------------------------
 ;;                        Inserting data
 
@@ -705,6 +710,7 @@ bind any variables with names commencing \"--\"."
 
 
 
+
 ;; ----------------------------------------------------------------
 ;;                        Deleting data
 
@@ -819,7 +825,7 @@ also `trie-member-p', which does this for you.)"
 
 
 
-
+
 ;;; ================================================================
 ;;;                      Mapping over tries
 
@@ -960,7 +966,7 @@ trie, and its associated data.
 
 Optional argument TYPE (one of the symbols vector, lisp or
 string; defaults to vector) sets the type of sequence passed to
-FUNCTION. If TYPE is 'string, it must be possible to apply the
+FUNCTION. If TYPE is string, it must be possible to apply the
 function `string' to the individual elements of key sequences
 stored in TRIE.
 
@@ -1007,7 +1013,7 @@ Note that if you don't care about the order in which FUNCTION is
 applied, just that the resulting list is in the correct order,
 then
 
-  (trie-mapf function 'cons trie type (not reverse))
+  (trie-mapf function #'cons trie type (not reverse))
 
 is more efficient.
 
@@ -1016,11 +1022,11 @@ bind any variables with names commencing \"--\"."
   ;; convert from print-form if necessary
   (trie-transform-from-read-warn trie)
   ;; map FUNCTION over TRIE and accumulate in a list
-  (nreverse (trie-mapf function 'cons trie type reverse)))
+  (nreverse (trie-mapf function #'cons trie type reverse)))
 
 
 
-
+
 ;;; ================================================================
 ;;;                    Using tries as stacks
 
@@ -1038,7 +1044,7 @@ bind any variables with names commencing \"--\"."
 	      (stack-createfun (trie--stack-createfun trie))
 	      (stack-popfun (trie--stack-popfun trie))
 	      (stack-emptyfun (trie--stack-emptyfun trie))
-	      (repopulatefun 'trie--stack-repopulate)
+	      (repopulatefun #'trie--stack-repopulate)
 	      (store
 	       (if (trie-empty trie)
 		   nil
@@ -1067,7 +1073,7 @@ bind any variables with names commencing \"--\"."
 	      (stack-createfun (trie--stack-createfun trie))
 	      (stack-popfun (trie--stack-popfun trie))
 	      (stack-emptyfun (trie--stack-emptyfun trie))
-	      (repopulatefun 'trie--stack-repopulate)
+	      (repopulatefun #'trie--stack-repopulate)
 	      (store (trie--completion-stack-construct-store
 		      trie prefix reverse))
 	      (pushed '())
@@ -1083,7 +1089,7 @@ bind any variables with names commencing \"--\"."
 	      (stack-createfun (trie--stack-createfun trie))
 	      (stack-popfun (trie--stack-popfun trie))
 	      (stack-emptyfun (trie--stack-emptyfun trie))
-	      (repopulatefun 'trie--regexp-stack-repopulate)
+	      (repopulatefun #'trie--regexp-stack-repopulate)
 	      (store (trie--regexp-stack-construct-store
 		      trie regexp reverse))
 	      (pushed '())
@@ -1097,24 +1103,27 @@ bind any variables with names commencing \"--\"."
 (defun trie-stack (trie &optional type reverse)
   "Return an object that allows TRIE to be accessed as a stack.
 
-The stack is sorted in \"lexical\" order, i.e. the order defined
-by the trie's comparison function, or in reverse order if REVERSE
-is non-nil. Calling `trie-stack-pop' pops the top element (a key
-and its associated data) from the stack.
+The stack is sorted in \"lexicographic\" order, i.e. the order
+defined by the trie's comparison function, or in reverse order if
+REVERSE is non-nil. Calling `trie-stack-pop' pops the top element
+\(a cons cell containing a key and its associated data\) from the
+stack.
 
-Optional argument TYPE (one of the symbols vector, lisp or
-string) sets the type of sequence used for the keys.
+Optional argument TYPE \(one of the symbols vector, lisp or
+string\) sets the type of sequence used for the keys. \(If TYPE
+is string, it must be possible to apply `string' to individual
+elements of TRIE keys.\)
 
 Note that any modification to TRIE *immediately* invalidates all
-trie-stacks created before the modification (in particular,
-calling `trie-stack-pop' will give unpredictable results).
+trie-stacks created before the modification \(in particular,
+calling `trie-stack-pop' will give unpredictable results\).
 
 Operations on trie-stacks are significantly more efficient than
 constructing a real stack from the trie and using standard stack
 functions. As such, they can be useful in implementing efficient
-algorithms on tries. However, in cases where mapping functions
+algorithms over tries. However, in cases where mapping functions
 `trie-mapc', `trie-mapcar' or `trie-mapf' would be sufficient, it
-is better to use one of those instead."
+may be better to use one of those instead."
   ;; convert trie from print-form if necessary
   (trie-transform-from-read-warn trie)
   ;; if stack functions aren't defined for trie type, throw error
@@ -1213,22 +1222,21 @@ element stored in the trie.)"
 
 
 
-
+
 ;; ================================================================
 ;;                   Query-building utility macros
 
 ;; Implementation Note
 ;; -------------------
-;; For queries ranked in anything other than lexical order, we use a
-;; partial heap-sort to find the k=MAXNUM highest ranked matches among
-;; the n possibile matches. This has worst-case time complexity
-;; O(n log k), and is both simple and elegant. An optimal algorithm
-;; (e.g. partial quick-sort discarding the irrelevant partition at each
-;; step) would have complexity O(n + k log k), but is probably not worth
-;; the extra coding effort, and would have worse space complexity unless
-;; coded to work "in-place", which would be highly non-trivial. (I
-;; haven't done any benchmarking, though, so feel free to do so and let
-;; me know the results!)
+;; For queries ranked in anything other than lexicographic order, we use a
+;; partial heap-sort to find the k=MAXNUM highest ranked matches among the n
+;; possibile matches. This has worst-case time complexity O(n log k), and is
+;; both simple and elegant. An optimal algorithm (e.g. partial quick-sort
+;; discarding the irrelevant partition at each step) would have complexity O(n
+;; + k log k), but is probably not worth the extra coding effort, and would
+;; have worse space complexity unless coded to work "in-place", which would be
+;; highly non-trivial. (I haven't done any benchmarking, though, so feel free
+;; to do so and let me know the results!)
 
 (defun trie--construct-accumulator (maxnum filter resultfun)
   ;; Does what it says on the tin! | sed -e 's/tin/macro name/'
@@ -1242,7 +1250,7 @@ element stored in the trie.)"
 	      (cons (funcall resultfun seq data)
 		    (aref trie--accumulate 0)))
 	(and (>= (length (aref trie--accumulate 0)) maxnum)
-	     (throw 'trie-accumulate--done nil)))))
+	     (throw 'trie--accumulate-done nil)))))
    ;; filter, maxnum, !resultfun
    ((and filter maxnum (not resultfun))
     (lambda (seq data)
@@ -1251,7 +1259,7 @@ element stored in the trie.)"
 	      (cons (cons seq data)
 		    (aref trie--accumulate 0)))
 	(and (>= (length (aref trie--accumulate 0)) maxnum)
-	     (throw 'trie-accumulate--done nil)))))
+	     (throw 'trie--accumulate-done nil)))))
    ;; filter, !maxnum, resultfun
    ((and filter (not maxnum) resultfun)
     (lambda (seq data)
@@ -1273,7 +1281,7 @@ element stored in the trie.)"
 	    (cons (funcall resultfun seq data)
 		  (aref trie--accumulate 0)))
       (and (>= (length (aref trie--accumulate 0)) maxnum)
-	   (throw 'trie-accumulate--done nil))))
+	   (throw 'trie--accumulate-done nil))))
    ;; !filter, maxnum, !resultfun
    ((and (not filter) maxnum (not resultfun))
     (lambda (seq data)
@@ -1281,7 +1289,7 @@ element stored in the trie.)"
 	    (cons (cons seq data)
 		  (aref trie--accumulate 0)))
       (and (>= (length (aref trie--accumulate 0)) maxnum)
-	   (throw 'trie-accumulate--done nil))))
+	   (throw 'trie--accumulate-done nil))))
    ;; !filter, !maxnum, resultfun
    ((and (not filter) (not maxnum) resultfun)
     (lambda (seq data)
@@ -1329,18 +1337,18 @@ element stored in the trie.)"
 
 (defmacro trie--accumulate-results
   (rankfun maxnum reverse filter resultfun accfun duplicates &rest body)
-  ;; Accumulate results of running BODY code, and return them in
-  ;; appropriate order. BODY should call ACCFUN to accumulate a result,
-  ;; passing it two arguments: a trie data node, and the corresponding
-  ;; sequence. BODY can throw 'trie-accumulate--done to terminate the
-  ;; accumulation and return the results. A non-null DUPLICATES flag
-  ;; signals that the accumulated results might contain duplicates,
-  ;; which should be deleted. Note that DUPLICATES is ignored if RANKFUN
-  ;; is null. The other arguments should be passed straight through from
-  ;; the query function.
+  ;; Accumulate results of running BODY code, and return them in appropriate
+  ;; order. BODY should call ACCFUN to accumulate a result, passing it two
+  ;; arguments: a trie key and its associated data. BODY can throw
+  ;; trie--accumulate-done to terminate the accumulation and return the
+  ;; results. A non-null DUPLICATES flag signals that the accumulated results
+  ;; might contain duplicates, which should be deleted. Note that DUPLICATES
+  ;; is ignored if RANKFUN is null, and that duplicates *do* count towards
+  ;; MAXNUM. The remaining arguments have the usual meanings, and should be
+  ;; passed straight through from the query function's arguments.
 
-  ;; rename functions to help avoid dynamic-scoping bugs
-  ;; FIXME: not needed with lexical scoping
+  ;; rename functions to help avoid dynamic-scoping bugs FIXME: not needed
+  ;; with lexical scoping
   `(let* ((--trie-accumulate--rankfun ,rankfun)
 	  (--trie-accumulate--filter ,filter)
 	  (--trie-accumulate--resultfun ,resultfun)
@@ -1365,7 +1373,7 @@ element stored in the trie.)"
 	      --trie-accumulate--resultfun))))
 
      ;; accumulate results
-     (catch 'trie-accumulate--done ,@body)
+     (catch 'trie--accumulate-done ,@body)
 
      ;; return list of results
      (cond
@@ -1390,14 +1398,14 @@ element stored in the trie.)"
 		     results))))
 	 results))
 
-      ;; for lexical query, reverse result list if MAXNUM supplied
+      ;; for lexicographic query, reverse result list if MAXNUM supplied
       (,maxnum (nreverse (aref trie--accumulate 0)))
       ;; otherwise, just return list
       (t (aref trie--accumulate 0)))))
 
 
 
-
+
 ;; ================================================================
 ;;                          Completing
 
@@ -1405,10 +1413,10 @@ element stored in the trie.)"
   (trie prefix &optional rankfun maxnum reverse filter resultfun)
   "Return an alist containing all completions of PREFIX in TRIE
 along with their associated data, in the order defined by
-RANKFUN, defaulting to \"lexical\" order (i.e. the order defined
-by the trie's comparison function). If REVERSE is non-nil, the
-completions are sorted in the reverse order. Returns nil if no
-completions are found.
+RANKFUN, defaulting to \"lexicographic\" order \(i.e. the order
+defined by the trie's comparison function\). If REVERSE is
+non-nil, the completions are sorted in the reverse order. Returns
+nil if no completions are found.
 
 PREFIX must be a sequence (vector, list or string) containing
 elements of the type used to reference data in the trie. (If
@@ -1437,7 +1445,7 @@ included in the results, and does not count towards MAXNUM.
 
 RESULTFUN defines a function used to process results before
 adding them to the final result list. If specified, it should
-accept two arguments: a key and its associated data. It's return
+accept two arguments: a key and its associated data. Its return
 value is what gets added to the final result list, instead of the
 default key-data cons cell."
 
@@ -1451,7 +1459,7 @@ default key-data cons cell."
   (if (or (atom prefix)
 	  (and (listp prefix) (not (sequencep (car prefix)))))
       (setq prefix (list prefix))
-    ;; sort list of prefixes if sorting completions lexically
+    ;; sort list of prefixes if sorting completions lexicographicly
     (when (null rankfun)
       (setq prefix
 	    (sort prefix (trie-construct-sortfun
@@ -1479,30 +1487,31 @@ default key-data cons cell."
   "Return an object that allows completions of PREFIX to be accessed
 as if they were a stack.
 
-The stack is sorted in \"lexical\" order, i.e. the order defined
-by TRIE's comparison function, or in reverse order if REVERSE is
-non-nil. Calling `trie-stack-pop' pops the top element (a key and
-its associated data) from the stack.
+The stack is sorted in \"lexicographic\" order, i.e. the order
+defined by TRIE's comparison function, or in reverse order if
+REVERSE is non-nil. Calling `trie-stack-pop' pops the top element
+\(a cons cell containing the next completion and its associated
+data\) from the stack.
 
 PREFIX must be a sequence (vector, list or string) that forms the
-initial part of a TRIE key, or a list of such sequences. (If
+initial part of a TRIE key, or a list of such sequences. \(If
 PREFIX is a string, it must be possible to apply `string' to
-individual elements of TRIE keys.)  The completions returned in
-the alist will be sequences of the same type as KEY. If PREFIX is
-a list of sequences, completions of all sequences in the list are
-included in the stack. All sequences in the list must be of the
-same type.
+individual elements of TRIE keys.\) The completions returned by
+`trie-stack-pop' will be sequences of the same type as KEY. If
+PREFIX is a list of sequences, they must all be of the same
+type. In this case, completions of all sequences in the list are
+included in the stack.
 
 Note that any modification to TRIE *immediately* invalidates all
-trie-stacks created before the modification (in particular,
-calling `trie-stack-pop' will give unpredictable results).
+trie-stacks created before the modification \(in particular,
+calling `trie-stack-pop' will give unpredictable results\).
 
 Operations on trie-stacks are significantly more efficient than
 constructing a real stack from completions of PREFIX in TRIE and
 using standard stack functions. As such, they can be useful in
-implementing efficient algorithms on tries. However, in cases
-where `trie-complete' or `trie-complete-ordered' is sufficient,
-it is better to use one of those instead."
+implementing efficient algorithms over tries. However, in cases
+where `trie-complete' is sufficient, it is better to use that
+instead."
   ;; convert trie from print-form if necessary
   (trie-transform-from-read-warn trie)
   ;; if stack functions aren't defined for trie type, throw error
@@ -1541,7 +1550,7 @@ it is better to use one of those instead."
 
 
 
-
+
 ;; ================================================================
 ;;                        Regexp search
 
@@ -1549,10 +1558,10 @@ it is better to use one of those instead."
   (trie regexp &optional rankfun maxnum reverse filter resultfun)
   "Return an alist containing all matches for REGEXP in TRIE
 along with their associated data, in the order defined by
-RANKFUN, defauling to \"lexical\" order (i.e. the order defined
-by the trie's comparison function).  If REVERSE is non-nil, the
-results are sorted in the reverse order. Returns nil if no
-results are found.
+RANKFUN, defaulting to \"lexicographic\" order \(i.e. the order
+defined by the trie's comparison function\). If REVERSE is
+non-nil, the results are sorted in the reverse order. Returns nil
+if no results are found.
 
 REGEXP is a regular expression, but it need not necessarily be a
 string. It must be a sequence (vector, list, or string) whose
@@ -1597,7 +1606,7 @@ results, and does not count towards MAXNUM.
 
 RESULTFUN defines a function used to process results before
 adding them to the final result list. If specified, it should
-accept two arguments: a key and its associated data. It's return
+accept two arguments: a key and its associated data. Its return
 value is what gets added to the final result list, instead of the
 default key-data cons cell."
 
@@ -1629,8 +1638,8 @@ default key-data cons cell."
 	      (funcall --trie-regexp-search--rankfun a b))))
 
     ;; accumulate results
-    (trie--accumulate-results rankfun maxnum reverse
-			      filter resultfun accumulator nil
+    (trie--accumulate-results
+     rankfun maxnum reverse filter resultfun accumulator nil
      (trie--do-regexp-search
       (trie--root trie)
       (tNFA-from-regexp regexp :test (trie--construct-equality-function
@@ -1736,19 +1745,23 @@ default key-data cons cell."
   "Return an object that allows matches to REGEXP to be accessed
 as if they were a stack.
 
-The stack is sorted in \"lexical\" order, i.e. the order defined
-by TRIE's comparison function, or in reverse order if REVERSE is
-non-nil. Calling `trie-stack-pop' pops the top element (a cons
-cell containing a key and its associated data) from the stack.
+The stack is sorted in \"lexicographic\" order, i.e. the order
+defined by TRIE's comparison function, or in reverse order if
+REVERSE is non-nil. Calling `trie-stack-pop' pops the top element
+\(a cons cell containing a key and its associated data\) from the
+stack.
 
 REGEXP is a regular expression, but it need not necessarily be a
-string. It must be a sequence (vector, list of string) whose
-elements are either elements of the same type as elements of the
-trie keys (which behave as literals in the regexp), or any of the
-usual regexp special characters and backslash constructs. If
-REGEXP is a string, it must be possible to apply `string' to
+string. It must be a sequence \(vector, list or string\) whose
+elements either have the same type as elements of the trie keys
+\(which behave as literals in the regexp\), or are any of the
+usual regexp special characters \(character type\) or backslash
+constructs \(string type\).
+
+If REGEXP is a string, it must be possible to apply `string' to
 individual elements of the keys stored in the trie. The matches
-returned in the alist will be sequences of the same type as KEY.
+returned by `trie-stack-pop' will be sequences of the same type
+as KEY.
 
 Back-references and non-greedy postfix operators are *not*
 supported, and the matches are always anchored, so `$' and `^'
@@ -1756,7 +1769,7 @@ lose their special meanings.
 
 If the regexp contains any non-shy grouping constructs, subgroup
 match data is included in the results. In this case, the car of
-each match (as returned by a call to `trie-stack-pop' is no
+each match \(as returned by a call to `trie-stack-pop'\) is no
 longer just a key. Instead, it is a list whose first element is
 the matching key, and whose remaining elements are cons cells
 whose cars and cdrs give the start and end indices of the
@@ -1878,6 +1891,295 @@ elements that matched the corresponding groups, in order."
 
 
 
+
+;; ================================================================
+;;                        Fuzzy matching
+
+;; Implementation Note
+;; -------------------
+;; The standard dynamical-programming solution to computing Lewenstein
+;; distance constructs a table of Lewenstein distances to successive prefixes
+;; of the target string, row-by-row. Our trie search algorithms are based on
+;; constructing the next row of this table as we (recursively) descend the
+;; trie. Since the each row only depends on entries in the previous row, we
+;; only need to pass a single row of the table down the recursion stack. (A
+;; nice description of this algorithm can be found at
+;; http://stevehanov.ca/blog/index.php?id=114.)
+;;
+;; I haven't benchmarked this (let me know the results if you do!), but it
+;; seems clear that this algorithm will be much faster than constructing a
+;; Lewenstein automata and stepping through it as we descend the trie
+;; (similarly to regexp searches, cf. `trie-regexp-match'.)
+
+
+(defun trie-fuzzy-match
+  (trie string distance &optional rankfun maxnum reverse filter resultfun)
+  "Return matches for STRING in TRIE within Lewenstein DISTANCE
+\(edit distance\) of STRING along with their associated data, in
+the order defined by RANKFUN, defaulting to \"lexicographic\"
+order \(i.e. the order defined by the trie's comparison
+function\). If REVERSE is non-nil, the results are sorted in the
+reverse order. Returns nil if no results are found.
+
+STRING is a sequence (vector, list or string), whose elements are
+of the same type as elements of the trie keys. If STRING is a
+string, it must be possible to apply `string' to individual
+elements of the keys stored in the trie. The matches returned in
+the alist will be sequences of the same type as STRING.
+
+DISTANCE must be an integer.
+
+The optional integer argument MAXNUM limits the results to the
+first MAXNUM matches. Otherwise, all matches are returned.
+
+RANKFUN overrides the default ordering of the results. If it is
+`t', matches are instead ordered by increasing Lewenstein
+distance of their prefix \(with same-distance matches ordered
+lexicographically\).
+
+If RANKFUN is a function, it must accept two arguments, both of
+the form:
+
+    (KEY DIST . DATA)
+
+where KEY is a key from the trie, DIST is its Lewenstein
+distances from STRING, and DATA is its associated data. RANKFUN
+should return non-nil if first argument is ranked strictly higher
+than the second, nil otherwise.
+
+The FILTER argument sets a filter function for the matches. If
+supplied, it is called for each possible match with two
+arguments: a KEY and a (DIST . DATA) cons cell. If the filter
+function returns nil, the match is not included in the results,
+and does not count towards MAXNUM.
+
+RESULTFUN defines a function used to process results before
+adding them to the final result list. If specified, it should
+accept two arguments: a KEY and a (DIST . DATA) cons cell. Its
+return value is what gets added to the final result list, instead
+of the default key-dist-data list."
+
+  ;; convert trie from print-form if necessary
+  (trie-transform-from-read-warn trie)
+
+  ;; construct rankfun to sort by Lewenstein distance if requested
+  (when (eq rankfun t)
+    (setq rankfun `(lambda (a b)
+  		     (cond
+  		     ((< (cadr a) (cadr b)) t)
+  		     ((> (cadr a) (cadr b)) nil)
+  		     (t ,(trie-construct-sortfun
+  			  (trie--comparison-function trie))
+  			(car a) (car b))))))
+
+  ;; accumulate results
+  (trie--accumulate-results
+   rankfun maxnum reverse filter resultfun accumulator nil
+   (funcall (trie--mapfun trie)
+	    (lambda (node)
+	      (trie--do-fuzzy-match
+	       node
+	       (apply #'vector (number-sequence 0 (length string)))
+	       (cond ((stringp string) "") ((listp string) ()) (t []))
+	       ;; FIXME: Would it pay to replace these arguments with
+	       ;;        dynamically-scoped variables, to save stack space?
+	       string distance (if maxnum reverse (not reverse))
+	       (trie--comparison-function trie)
+	       (trie--construct-equality-function
+		(trie--comparison-function trie))
+	       (trie--lookupfun trie)
+	       (trie--mapfun trie)
+	       accumulator))
+	    (trie--node-subtree (trie--root trie))
+	    (if maxnum reverse (not reverse)))))
+
+
+(defun trie--do-fuzzy-match (node row seq string distance reverse
+			     cmpfun equalfun lookupfun mapfun accumulator)
+  ;; Search everything below NODE for matches within Lewenstein distance
+  ;; DISTANCE of STRING. ROW is the previous row of the Lewenstein table. SEQ
+  ;; is the sequence corresponding to NODE. If COMPLETE is non-nil, return
+  ;; completions of matches, otherwise return matches themselves. Remaining
+  ;; arguments are corresponding trie functions.
+
+  ;; if we're at a data node and SEQ is within DISTANCE of STRING (i.e. last
+  ;; entry of row is <= DISTANCE), accumulate result
+  (if (trie--node-data-p node)
+      (when (<= (aref row (1- (length row))) distance)
+	(funcall accumulator
+		 seq (cons (aref row (1- (length row)))
+			   (trie--node-data node))))
+
+    ;; build next row of Lewenstein table
+    (let ((next-row (make-vector (length row) nil)))
+      (let ((i 0) inscost delcost subcost)
+	(aset next-row 0 (1+ (aref row 0)))
+	(while (< (incf i) (length row))
+	  (setq inscost (1+ (aref next-row (1- i)))
+		delcost (1+ (aref row i))
+		subcost (if (funcall equalfun
+				     (trie--node-split node)
+				     (elt string (1- i)))
+			    (aref row (1- i))
+			  (1+ (aref row (1- i)))))
+	  (aset next-row i (min inscost delcost subcost))))
+      (setq row next-row))
+    (setq seq (trie--seq-append seq (trie--node-split node)))
+
+    ;; as long as some row entry is < DISTANCE, recursively search below NODE
+    (when (< (apply #'min (append row nil)) distance)
+      (funcall mapfun
+	       (lambda (n)
+		 (trie--do-fuzzy-match
+		  n row seq string distance reverse
+		  cmpfun equalfun lookupfun mapfun accumulator))
+	       (trie--node-subtree node)
+	       reverse))))
+
+
+
+(defun trie-fuzzy-complete
+  (trie prefix distance &optional rankfun maxnum reverse filter resultfun)
+  "Return matches for PREFIX in TRIE within Lewenstein DISTANCE
+\(edit distance\) of PREFIX along with their associated data, in
+the order defined by RANKFUN, defaulting to \"lexicographic\"
+order \(i.e. the order defined by the trie's comparison
+function\). If REVERSE is non-nil, the results are sorted in the
+reverse order. Returns nil if no results are found.
+
+PREFIX is a sequence (vector, list or string), whose elements are
+of the same type as elements of the trie keys. If PREFIX is a
+string, it must be possible to apply `string' to individual
+elements of the keys stored in the trie. The matches returned in
+the alist will be sequences of the same type as PREFIX.
+
+DISTANCE must be an integer.
+
+The optional integer argument MAXNUM limits the results to the
+first MAXNUM matches. Otherwise, all matches are returned.
+
+RANKFUN overrides the default ordering of the results. If it is
+`t', matches are instead ordered by increasing Lewenstein
+distance of their prefix \(with same-distance matches ordered
+lexicographically\).
+
+If RANKFUN is a function, it must accepts two arguments, both of
+the form:
+
+    (KEY DIST . DATA)
+
+where KEY is a key from the trie, DIST is its Lewenstein
+distances from PREFIX, and DATA is its associated data. RANKFUN
+should return non-nil if first argument is ranked strictly higher
+than the second, nil otherwise.
+
+The FILTER argument sets a filter function for the matches. If
+supplied, it is called for each possible match with two
+arguments: a KEY and a (DIST . DATA) cons cell. If the filter
+function returns nil, the match is not included in the results,
+and does not count towards MAXNUM.
+
+RESULTFUN defines a function used to process results before
+adding them to the final result list. If specified, it should
+accept two arguments: a KEY and a (DIST . DATA) cons cell. Its
+return value is what gets added to the final result list, instead
+of the default key-dist-data list."
+
+  ;; convert trie from print-form if necessary
+  (trie-transform-from-read-warn trie)
+
+  ;; construct rankfun to sort by Lewenstein distance if requested
+  (when (eq rankfun t)
+    (setq rankfun `(lambda (a b)
+  		     (cond
+  		     ((< (cadr a) (cadr b)) t)
+  		     ((> (cadr a) (cadr b)) nil)
+  		     (t ,(trie-construct-sortfun
+  			  (trie--comparison-function trie))
+  			(car a) (car b))))))
+
+  ;; accumulate results
+  (trie--accumulate-results
+   rankfun maxnum reverse filter resultfun accumulator nil
+   (funcall (trie--mapfun trie)
+	    (lambda (node)
+	      (trie--do-fuzzy-complete
+	       node
+	       (apply #'vector (number-sequence 0 (length prefix)))
+	       (cond ((stringp prefix) "") ((listp prefix) ()) (t []))
+	       (length prefix)
+	       ;; FIXME: Would it pay to replace these arguments with
+	       ;;        dynamically-scoped variables, to save stack space?
+	       prefix distance (if maxnum reverse (not reverse))
+	       (trie--comparison-function trie)
+	       (trie--construct-equality-function
+		(trie--comparison-function trie))
+	       (trie--lookupfun trie)
+	       (trie--mapfun trie)
+	       accumulator))
+	    (trie--node-subtree (trie--root trie))
+	    (if maxnum reverse (not reverse)))))
+
+
+(defun trie--do-fuzzy-complete (node row seq pfxcost prefix distance reverse
+				cmpfun equalfun lookupfun mapfun accumulator)
+  ;; Search everything below NODE for completions of prefixes within
+  ;; Lewenstein distance DISTANCE of PREFIX. ROW is the previous row of the
+  ;; Lewenstein table. SEQ is the sequence corresponding to NODE. PFXCOST is
+  ;; minimum distance of any prefix of seq. Remaining arguments are
+  ;; corresponding trie functions.
+
+  ;; if we're at a data node and SEQ is within DISTANCE of STRING (i.e. last
+  ;; entry of row is <= DISTANCE), accumulate result
+  (if (trie--node-data-p node)
+      (when (<= (aref row (1- (length row))) distance)
+	(funcall accumulator
+		 seq (cons (aref row (1- (length row)))
+			   (trie--node-data node))))
+
+    ;; build next row of Lewenstein table
+    (let ((next-row (make-vector (length row) nil)))
+      (let ((i 0) inscost delcost subcost)
+	(aset next-row 0 (1+ (aref row 0)))
+	(while (< (incf i) (length row))
+	  (setq inscost (1+ (aref next-row (1- i)))
+		delcost (1+ (aref row i))
+		subcost (if (funcall equalfun
+				     (trie--node-split node)
+				     (elt prefix (1- i)))
+			    (aref row (1- i))
+			  (1+ (aref row (1- i)))))
+	  (aset next-row i (min inscost delcost subcost))))
+      (setq row next-row))
+    (setq seq (trie--seq-append seq (trie--node-split node)))
+    (setq pfxcost (min pfxcost (aref row (1- (length row)))))
+
+    ;; as long as some row entry is < DISTANCE, recursively search below NODE
+    (if (< (apply #'min (append row nil)) distance)
+	(funcall mapfun
+		 (lambda (n)
+		   (trie--do-fuzzy-complete
+		    n row seq pfxcost prefix distance reverse
+		    cmpfun equalfun lookupfun mapfun accumulator))
+		 (trie--node-subtree node)
+		 reverse)
+    ;; otherwise, accumulate all results below node
+    (if (<= (aref row (1- (length row))) distance)
+	(trie--mapc
+	 (lambda (n s)
+	   (funcall accumulator
+		    s (cons (aref row (1- (length row)))
+			    (trie--node-data n))))
+	 mapfun node seq reverse)
+      ))))
+
+
+
+
+
+
+
+
 ;; ----------------------------------------------------------------
 ;;            Pretty-print tries during edebug
 
