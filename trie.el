@@ -99,12 +99,12 @@
 ;; efficienct insertion operations, and less efficient deletion
 ;; operations. Splay trees give good average-case complexity and are simpler
 ;; to implement than AVL or red-black trees (which can mean they're faster in
-;; practice!), at the expense of poor worst-case complexity.
+;; practice), at the expense of poor worst-case complexity.
 ;;
 ;; If your tries are going to be static (i.e. created once and rarely
 ;; modified), then using perfectly balanced binary search trees might be
 ;; appropriate. Perfectly balancing the binary trees is very inefficient, but
-;; it only has to be when the trie is first created or modified. Lookup
+;; it only has to be done when the trie is first created or modified. Lookup
 ;; operations will then be as efficient as possible for ternary search trees,
 ;; and the implementation will also be simpler (so probably faster) than a
 ;; self-balancing tree, without the space and time overhead required to keep
@@ -1041,9 +1041,9 @@ bind any variables with names commencing \"--\"."
 	      &aux
 	      (comparison-function (trie--comparison-function trie))
 	      (lookupfun (trie--lookupfun trie))
-	      (stack-createfun (trie--stack-createfun trie))
-	      (stack-popfun (trie--stack-popfun trie))
-	      (stack-emptyfun (trie--stack-emptyfun trie))
+	      (stackcreatefun (trie--stack-createfun trie))
+	      (stackpopfun (trie--stack-popfun trie))
+	      (stackemptyfun (trie--stack-emptyfun trie))
 	      (repopulatefun #'trie--stack-repopulate)
 	      (store
 	       (if (trie-empty trie)
@@ -1054,12 +1054,12 @@ bind any variables with names commencing \"--\"."
 			       ((eq type 'string) "")
 			       (t []))
 			 (funcall
-			  stack-createfun
+			  stackcreatefun
 			  (trie--node-subtree (trie--root trie))
 			  reverse)))
 		  reverse
 		  comparison-function lookupfun
-		  stack-createfun stack-popfun stack-emptyfun)))
+		  stackcreatefun stackpopfun stackemptyfun)))
 	      (pushed '())
 	      ))
 	    (:constructor
@@ -1070,9 +1070,9 @@ bind any variables with names commencing \"--\"."
 	      &aux
 	      (comparison-function (trie--comparison-function trie))
 	      (lookupfun (trie--lookupfun trie))
-	      (stack-createfun (trie--stack-createfun trie))
-	      (stack-popfun (trie--stack-popfun trie))
-	      (stack-emptyfun (trie--stack-emptyfun trie))
+	      (stackcreatefun (trie--stack-createfun trie))
+	      (stackpopfun (trie--stack-popfun trie))
+	      (stackemptyfun (trie--stack-emptyfun trie))
 	      (repopulatefun #'trie--stack-repopulate)
 	      (store (trie--completion-stack-construct-store
 		      trie prefix reverse))
@@ -1086,17 +1086,49 @@ bind any variables with names commencing \"--\"."
 	      &aux
 	      (comparison-function (trie--comparison-function trie))
 	      (lookupfun (trie--lookupfun trie))
-	      (stack-createfun (trie--stack-createfun trie))
-	      (stack-popfun (trie--stack-popfun trie))
-	      (stack-emptyfun (trie--stack-emptyfun trie))
+	      (stackcreatefun (trie--stack-createfun trie))
+	      (stackpopfun (trie--stack-popfun trie))
+	      (stackemptyfun (trie--stack-emptyfun trie))
 	      (repopulatefun #'trie--regexp-stack-repopulate)
 	      (store (trie--regexp-stack-construct-store
 		      trie regexp reverse))
 	      (pushed '())
 	      ))
+	    (:constructor
+	     trie--fuzzy-match-stack-create
+	     (trie string distance
+	      &optional
+	      reverse
+	      &aux
+	      (comparison-function (trie--comparison-function trie))
+	      (lookupfun (trie--lookupfun trie))
+	      (stackcreatefun (trie--stack-createfun trie))
+	      (stackpopfun (trie--stack-popfun trie))
+	      (stackemptyfun (trie--stack-emptyfun trie))
+	      (repopulatefun #'trie--fuzzy-match-stack-repopulate)
+	      (store (trie--fuzzy-match-stack-construct-store
+		      trie string distance reverse))
+	      (pushed '())
+	      ))
+	    (:constructor
+	     trie--fuzzy-completion-stack-create
+	     (trie prefix distance
+	      &optional
+	      reverse
+	      &aux
+	      (comparison-function (trie--comparison-function trie))
+	      (lookupfun (trie--lookupfun trie))
+	      (stackcreatefun (trie--stack-createfun trie))
+	      (stackpopfun (trie--stack-popfun trie))
+	      (stackemptyfun (trie--stack-emptyfun trie))
+	      (repopulatefun #'trie--fuzzy-completion-stack-repopulate)
+	      (store (trie--fuzzy-completion-stack-construct-store
+		      trie prefix distance reverse))
+	      (pushed '())
+	      ))
 	    (:copier nil))
   reverse comparison-function lookupfun
-  stack-createfun stack-popfun stack-emptyfun
+  stackcreatefun stackpopfun stackemptyfun
   repopulatefun store pushed)
 
 
@@ -1154,9 +1186,9 @@ element stored in the trie.)"
 		       (trie--stack-reverse trie-stack)
 		       (trie--stack-comparison-function trie-stack)
 		       (trie--stack-lookupfun trie-stack)
-		       (trie--stack-stack-createfun trie-stack)
-		       (trie--stack-stack-popfun trie-stack)
-		       (trie--stack-stack-emptyfun trie-stack)))))))
+		       (trie--stack-stackcreatefun trie-stack)
+		       (trie--stack-stackpopfun trie-stack)
+		       (trie--stack-stackemptyfun trie-stack)))))))
 
 
 (defun trie-stack-push (element trie-stack)
@@ -1203,19 +1235,17 @@ element stored in the trie.)"
     (let ((node (funcall stack-popfun (cdar store)))
 	  (seq (caar store)))
       (when (funcall stack-emptyfun (cdar store))
-	;; (pop store) here produces irritating compiler warnings
+	;; using (pop store) here produces irritating compiler warnings
 	(setq store (cdr store)))
 
       (while (not (trie--node-data-p node))
 	(push
 	 (cons (trie--seq-append seq (trie--node-split node))
-	       (funcall stack-createfun
-			(trie--node-subtree node) reverse))
+	       (funcall stack-createfun (trie--node-subtree node) reverse))
 	 store)
 	(setq node (funcall stack-popfun (cdar store))
 	      seq (caar store))
 	(when (funcall stack-emptyfun (cdar store))
-	  ;; (pop store) here produces irritating compiler warnings
 	  (setq store (cdr store))))
 
       (push (cons seq (trie--node-data node)) store))))
@@ -1921,11 +1951,19 @@ order \(i.e. the order defined by the trie's comparison
 function\). If REVERSE is non-nil, the results are sorted in the
 reverse order. Returns nil if no results are found.
 
+Returns a list of matches, with elements of the form:
+
+    (KEY DIST . DATA)
+
+where KEY is a matching key from the trie, DATA its associated
+data, and DIST is its Lewenstein distance \(edit distance\) from
+STRING.
+
 STRING is a sequence (vector, list or string), whose elements are
 of the same type as elements of the trie keys. If STRING is a
 string, it must be possible to apply `string' to individual
-elements of the keys stored in the trie. The matches returned in
-the alist will be sequences of the same type as STRING.
+elements of the keys stored in the trie. The KEYs returned in the
+list will be sequences of the same type as STRING.
 
 DISTANCE must be an integer.
 
@@ -1934,7 +1972,7 @@ first MAXNUM matches. Otherwise, all matches are returned.
 
 RANKFUN overrides the default ordering of the results. If it is
 `t', matches are instead ordered by increasing Lewenstein
-distance of their prefix \(with same-distance matches ordered
+distance \(with same-distance matches ordered
 lexicographically\).
 
 If RANKFUN is a function, it must accept two arguments, both of
@@ -2011,20 +2049,9 @@ of the default key-dist-data list."
 			   (trie--node-data node))))
 
     ;; build next row of Lewenstein table
-    (let ((next-row (make-vector (length row) nil)))
-      (let ((i 0) inscost delcost subcost)
-	(aset next-row 0 (1+ (aref row 0)))
-	(while (< (incf i) (length row))
-	  (setq inscost (1+ (aref next-row (1- i)))
-		delcost (1+ (aref row i))
-		subcost (if (funcall equalfun
-				     (trie--node-split node)
-				     (elt string (1- i)))
-			    (aref row (1- i))
-			  (1+ (aref row (1- i)))))
-	  (aset next-row i (min inscost delcost subcost))))
-      (setq row next-row))
-    (setq seq (trie--seq-append seq (trie--node-split node)))
+    (setq row (trie--Lewenstein-next-row
+	       row string (trie--node-split node) equalfun)
+	  seq (trie--seq-append seq (trie--node-split node)))
 
     ;; as long as some row entry is < DISTANCE, recursively search below NODE
     (when (< (apply #'min (append row nil)) distance)
@@ -2037,21 +2064,159 @@ of the default key-dist-data list."
 	       reverse))))
 
 
+(defun trie--Lewenstein-next-row (row string chr equalfun)
+  ;; Compute next row of Lewenstein distance matrix.
+  (let ((next-row (make-vector (length row) nil))
+	(i 0) inscost delcost subcost)
+    (aset next-row 0 (1+ (aref row 0)))
+    (while (< (incf i) (length row))
+      (setq inscost (1+ (aref next-row (1- i)))
+	    delcost (1+ (aref row i))
+	    subcost (if (funcall equalfun chr (elt string (1- i)))
+			(aref row (1- i))
+		      (1+ (aref row (1- i)))))
+      (aset next-row i (min inscost delcost subcost)))
+    next-row))
+
+
+
+(defun trie-fuzzy-match-stack (trie string distance &optional reverse)
+  "Return an object that allows fuzzy matches to be accessed
+as if they were a stack.
+
+The stack is sorted in \"lexicographic\" order, i.e. the order
+defined by TRIE's comparison function, or in reverse order if
+REVERSE is non-nil. Calling `trie-stack-pop' pops the top element
+from the stack. Each stack element has the form:
+
+    (KEY DIST . DATA)
+
+where KEY is a matching key from the trie, DATA its associated
+data, and DIST is its Lewenstein distance \(edit distance\) from
+STRING.
+
+STRING is a sequence (vector, list or string), whose elements are
+of the same type as elements of the trie keys. If STRING is a
+string, it must be possible to apply `string' to individual
+elements of the keys stored in the trie. The KEYs in the matches
+returned by `trie-stack-pop' will be sequences of the same type
+as STRING.
+
+DISTANCE is an integer. The fuzzy matches in the stack will be
+within Lewenstein distance \(edit distance\) DISTANCE of STRING."
+
+  ;; convert trie from print-form if necessary
+  (trie-transform-from-read-warn trie)
+  ;; if stack functions aren't defined for trie type, throw error
+  (if (not (functionp (trie--stack-createfun trie)))
+      (error "Trie type does not support stack operations")
+    ;; otherwise, create and initialise a fuzzy stack
+    (trie--fuzzy-match-stack-create trie string distance reverse)))
+
+
+(defun trie--fuzzy-match-stack-construct-store
+    (trie string distance &optional reverse)
+  ;; Construct store for fuzzy stack based on TRIE.
+  (let ((seq (cond ((stringp string) "") ((listp string) ()) (t [])))
+	store)
+    (push (list seq
+		(funcall (trie--stack-createfun trie)
+			 (trie--node-subtree (trie--root trie))
+			 reverse)
+		string distance
+		(apply #'vector (number-sequence 0 (length string))))
+	  store)
+    (trie--fuzzy-match-stack-repopulate
+     store reverse
+     (trie--comparison-function trie)
+     (trie--lookupfun trie)
+     (trie--stack-createfun trie)
+     (trie--stack-popfun trie)
+     (trie--stack-emptyfun trie))))
+
+
+(defun trie--fuzzy-match-stack-repopulate
+  (store reverse comparison-function _lookupfun
+	 stack-createfun stack-popfun stack-emptyfun)
+  ;; Recursively push matching children of the node at the head of STORE
+  ;; onto STORE, until a data node is reached. REVERSE is the usual
+  ;; query argument, and the remaining arguments are the corresponding
+  ;; trie functions.
+
+  (when store
+    (let ((equalfun (trie--construct-equality-function comparison-function))
+	  nextrow)
+
+      (destructuring-bind (seq node string distance row) (car store)
+	(setq node (funcall stack-popfun node))
+	(when (funcall stack-emptyfun (nth 1 (car store)))
+	  ;; using (pop store) here produces irritating compiler warnings
+	  (setq store (cdr store)))
+
+	;; push children of node at head of store that are within DISTANCE of
+	;; STRING, until we find a data node where entire SEQ is within
+	;; DISTANCE of STRING (i.e. last entry of row is <= DISTANCE)
+	(while (and node
+		    (not (and (trie--node-data-p node)
+			      (<= (aref row (1- (length row))) distance))))
+	  ;; drop data nodes whose SEQ is greater than DISTANCE
+	  (unless (trie--node-data-p node)
+	    (setq nextrow (trie--Lewenstein-next-row
+			   row string (trie--node-split node) equalfun))
+	    ;; push children of non-data nodes whose SEQ is less than DISTANCE
+	    ;; onto stack
+	    (when (< (apply #'min (append row nil)) distance)
+	      (push
+	       (list (trie--seq-append seq (trie--node-split node))
+		     (funcall stack-createfun
+			      (trie--node-subtree node) reverse)
+		     string distance nextrow)
+	       store)))
+	  ;; get next node from stack
+	  (when (setq node (car store))
+	    (setq seq (nth 0 node)
+		  string (nth 2 node)
+		  distance (nth 3 node)
+		  row (nth 4 node)
+		  node (funcall stack-popfun (nth 1 node)))
+	    ;; drop head of stack if nodes are exhausted
+	    (when (funcall stack-emptyfun (nth 1 (car store)))
+	      (setq store (cdr store)))))
+
+	;; push next fuzzy match onto head of stack
+	(when node
+	  (push (cons seq (cons (aref row (1- (length row)))
+				(trie--node-data node)))
+		store))))))
+
+
+
+
+;; ================================================================
+;;                        Fuzzy completing
 
 (defun trie-fuzzy-complete
   (trie prefix distance &optional rankfun maxnum reverse filter resultfun)
-  "Return matches for PREFIX in TRIE within Lewenstein DISTANCE
-\(edit distance\) of PREFIX along with their associated data, in
-the order defined by RANKFUN, defaulting to \"lexicographic\"
-order \(i.e. the order defined by the trie's comparison
-function\). If REVERSE is non-nil, the results are sorted in the
-reverse order. Returns nil if no results are found.
+  "Return completions of prefixes within Lewenstein DISTANCE of PREFIX
+along with their associated data, in the order defined by
+RANKFUN, defaulting to \"lexicographic\" order \(i.e. the order
+defined by the trie's comparison function\). If REVERSE is
+non-nil, the results are sorted in the reverse order. Returns nil
+if no results are found.
+
+Returns a list of completions, with elements of the form:
+
+    (KEY DIST . DATA)
+
+where KEY is a matching completion from the trie, DATA its
+associated data, and DIST is its Lewenstein distance \(edit
+distance\) from STRING.
 
 PREFIX is a sequence (vector, list or string), whose elements are
 of the same type as elements of the trie keys. If PREFIX is a
 string, it must be possible to apply `string' to individual
-elements of the keys stored in the trie. The matches returned in
-the alist will be sequences of the same type as PREFIX.
+elements of the keys stored in the trie. The KEYs returned in the
+list will be sequences of the same type as PREFIX.
 
 DISTANCE must be an integer.
 
@@ -2063,7 +2228,7 @@ RANKFUN overrides the default ordering of the results. If it is
 distance of their prefix \(with same-distance matches ordered
 lexicographically\).
 
-If RANKFUN is a function, it must accepts two arguments, both of
+If RANKFUN is a function, it must accept two arguments, both of
 the form:
 
     (KEY DIST . DATA)
@@ -2129,7 +2294,7 @@ of the default key-dist-data list."
   ;; minimum distance of any prefix of seq. Remaining arguments are
   ;; corresponding trie functions.
 
-  ;; if we're at a data node and SEQ is within DISTANCE of STRING (i.e. last
+  ;; if we're at a data node and SEQ is within DISTANCE of PREFIX (i.e. last
   ;; entry of row is <= DISTANCE), accumulate result
   (if (trie--node-data-p node)
       (when (<= (aref row (1- (length row))) distance)
@@ -2138,21 +2303,10 @@ of the default key-dist-data list."
 			   (trie--node-data node))))
 
     ;; build next row of Lewenstein table
-    (let ((next-row (make-vector (length row) nil)))
-      (let ((i 0) inscost delcost subcost)
-	(aset next-row 0 (1+ (aref row 0)))
-	(while (< (incf i) (length row))
-	  (setq inscost (1+ (aref next-row (1- i)))
-		delcost (1+ (aref row i))
-		subcost (if (funcall equalfun
-				     (trie--node-split node)
-				     (elt prefix (1- i)))
-			    (aref row (1- i))
-			  (1+ (aref row (1- i)))))
-	  (aset next-row i (min inscost delcost subcost))))
-      (setq row next-row))
-    (setq seq (trie--seq-append seq (trie--node-split node)))
-    (setq pfxcost (min pfxcost (aref row (1- (length row)))))
+    (setq row (trie--Lewenstein-next-row
+	       row prefix (trie--node-split node) equalfun)
+	  seq (trie--seq-append seq (trie--node-split node))
+	  pfxcost (min pfxcost (aref row (1- (length row)))))
 
     ;; as long as some row entry is < DISTANCE, recursively search below NODE
     (if (< (apply #'min (append row nil)) distance)
@@ -2163,19 +2317,157 @@ of the default key-dist-data list."
 		    cmpfun equalfun lookupfun mapfun accumulator))
 		 (trie--node-subtree node)
 		 reverse)
-    ;; otherwise, accumulate all results below node
-    (if (<= (aref row (1- (length row))) distance)
+
+      ;; otherwise, if we've found a prefix within DISTANCE of PREFIX,
+      ;; accumulate all completions below node
+      (when (<= (aref row (1- (length row))) distance)
 	(trie--mapc
 	 (lambda (n s)
 	   (funcall accumulator
-		    s (cons (aref row (1- (length row)))
-			    (trie--node-data n))))
-	 mapfun node seq reverse)
-      ))))
+		    s (cons pfxcost (trie--node-data n))))
+	 mapfun node seq reverse))
+      )))
 
 
 
+(defun trie-fuzzy-complete-stack (trie prefix distance &optional reverse)
+  "Return an object that allows fuzzy completions to be accessed
+as if they were a stack.
 
+The stack is sorted in \"lexicographic\" order, i.e. the order
+defined by TRIE's comparison function, or in reverse order if
+REVERSE is non-nil. Calling `trie-stack-pop' pops the top element
+from the stack. Each stack element has the form:
+
+    (KEY DIST . DATA)
+
+where KEY is a matching completion from the trie, DATA its
+associated data, and DIST is the Lewenstein distance \(edit
+distance\) from PREFIX of the prefix whose completion is KEY.
+
+PREFIX is a sequence (vector, list or string), whose elements are
+of the same type as elements of the trie keys. If PREFIX is a
+string, it must be possible to apply `string' to individual
+elements of the keys stored in the trie. The KEYs in the stack
+elements will be sequences of the same type as PREFIX.
+
+DISTANCE is an integer. The fuzzy completions in the stack will
+have prefixes within Lewenstein distance \(edit distance\)
+DISTANCE of PREFIX."
+
+  ;; convert trie from print-form if necessary
+  (trie-transform-from-read-warn trie)
+  ;; if stack functions aren't defined for trie type, throw error
+  (if (not (functionp (trie--stack-createfun trie)))
+      (error "Trie type does not support stack operations")
+    ;; otherwise, create and initialise a fuzzy stack
+    (trie--fuzzy-completion-stack-create trie prefix distance reverse)))
+
+
+(defun trie--fuzzy-completion-stack-construct-store
+    (trie prefix distance &optional reverse)
+  ;; Construct store for fuzzy completion stack based on TRIE.
+  (let ((seq (cond ((stringp prefix) "") ((listp prefix) ()) (t [])))
+	store)
+    (push (list seq
+		(funcall (trie--stack-createfun trie)
+			 (trie--node-subtree (trie--root trie))
+			 reverse)
+		prefix distance
+		(apply #'vector (number-sequence 0 (length prefix)))
+		(length prefix))
+	  store)
+    (trie--fuzzy-completion-stack-repopulate
+     store reverse
+     (trie--comparison-function trie)
+     (trie--lookupfun trie)
+     (trie--stack-createfun trie)
+     (trie--stack-popfun trie)
+     (trie--stack-emptyfun trie))))
+
+
+(defun trie--fuzzy-completion-stack-repopulate
+  (store reverse comparison-function _lookupfun
+	 stack-createfun stack-popfun stack-emptyfun)
+  ;; Recursively push matching children of the node at the head of STORE
+  ;; onto STORE, until a data node is reached. REVERSE is the usual
+  ;; query argument, and the remaining arguments are the corresponding
+  ;; trie functions.
+
+  (when store
+    (let ((equalfun (trie--construct-equality-function comparison-function)))
+
+      (destructuring-bind (seq node prefix distance row pfxcost) (car store)
+	(setq node (funcall stack-popfun node))
+	(when (funcall stack-emptyfun (nth 1 (car store)))
+	  ;; using (pop store) here produces irritating compiler warnings
+	  (setq store (cdr store)))
+
+	;; push children of node at head of store that are within DISTANCE of
+	;; PREFIX, until we either find a data node whose entire SEQ is within
+	;; DISTANCE of PREFIX (i.e. last entry of row is <= DISTANCE), or
+	;; we've found a prefix within DISTANCE of PREFIX and are gathering
+	;; all its completions
+	(while (and node
+		    (not (and (trie--node-data-p node)
+			      (or (eq distance t)  ; completing a prefix
+				  (<= (aref row (1- (length row))) distance))
+			      )))
+	   ;; drop data nodes whose SEQ is greater than DISTANCE
+	  (unless (trie--node-data-p node)
+	    ;; build next row of Lewenstein table
+	    (setq row (trie--Lewenstein-next-row
+		       row prefix (trie--node-split node) equalfun)
+		  seq (trie--seq-append seq (trie--node-split node))
+		  pfxcost (min pfxcost (aref row (1- (length row)))))
+
+	    (cond
+	     ;; if we're completing a prefix, always push next node onto stack
+	     ((eq distance t)
+	      (push
+	       (list seq
+		     (funcall stack-createfun
+			      (trie--node-subtree node) reverse)
+		     prefix t row pfxcost)
+	       store))
+
+	     ;; if we've found a prefix within DISTANCE of PREFIX, then
+	     ;; everything below node belongs on stack
+	     ((<= (aref row (1- (length row))) distance)
+	      (push
+	       (list seq
+		     (funcall stack-createfun
+			      (trie--node-subtree node) reverse)
+		     ;; t in distance slot indicates completing
+		     prefix t row pfxcost)
+	       store))
+
+	     ;; if some row entry for non-data node is < DISTANCE, push node
+	     ;; onto stack
+	     ((< (apply #'min (append row nil)) distance)
+	      (push
+	       (list seq
+		     (funcall stack-createfun
+			      (trie--node-subtree node) reverse)
+		     prefix distance row pfxcost)
+	       store))))
+
+	  ;; get next node from stack
+	  (when (setq node (car store))
+	    (setq seq (nth 0 node)
+		  prefix (nth 2 node)
+		  distance (nth 3 node)
+		  row (nth 4 node)
+		  node (funcall stack-popfun (nth 1 node)))
+	    ;; drop head of stack if nodes are exhausted
+	    (when (funcall stack-emptyfun (nth 1 (car store)))
+	      (setq store (cdr store)))))
+
+
+	;; push next fuzzy completion onto head of stack
+	(when node
+	  (push (cons seq (cons pfxcost (trie--node-data node)))
+		store))))))
 
 
 
