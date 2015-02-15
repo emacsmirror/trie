@@ -1,9 +1,9 @@
 ;;; trie.el --- Trie data structure  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2008-2010, 2012  Free Software Foundation, Inc
+;; Copyright (C) 2008-2015  Free Software Foundation, Inc
 
 ;; Author: Toby Cubitt <toby-predictive@dr-qubit.org>
-;; Version: 0.2.6
+;; Version: 0.3
 ;; Keywords: extensions, matching, data structures
 ;;           trie, ternary search tree, tree, completion, regexp
 ;; Package-Requires: ((tNFA "0.1.1") (heap "0.3"))
@@ -43,13 +43,18 @@
 ;; You create a trie using `make-trie', create an association using
 ;; `trie-insert', retrieve an association using `trie-lookup', and map over a
 ;; trie using `trie-map', `trie-mapc', `trie-mapcar', or `trie-mapf'. You can
-;; find completions of a prefix sequence using `trie-complete', or search for
-;; keys matching a regular expression using `trie-regexp-search'. Using
-;; `trie-stack', you can create an object that allows the contents of the trie
-;; to be used like a stack, useful for building other algorithms on top of
-;; tries; `trie-stack-pop' pops elements off the stack one-by-one, in
+;; find completions of a prefix sequence using `trie-complete', search for
+;; keys matching a regular expression using `trie-regexp-search', find fuzzy
+;; matches within a given Lewenstein distance (edit distance) of a string
+;; using `trie-fuzzy-match', and find completions of prefixes within a given
+;; distance using `trie-fuzzy-complete'.
+
+;; Using `trie-stack', you can create an object that allows the contents of
+;; the trie to be used like a stack, useful for building other algorithms on
+;; top of tries; `trie-stack-pop' pops elements off the stack one-by-one, in
 ;; "lexicographic" order, whilst `trie-stack-push' pushes things onto the
-;; stack. Similarly, `trie-complete-stack', and `trie-regexp-stack' create
+;; stack. Similarly, `trie-complete-stack', `trie-regexp-stack',
+;; `trie-fuzzy-match-stack' and `trie-fuzzy-complete-stack' create
 ;; "lexicographicly-ordered" stacks of query results.
 ;;
 ;; Note that there are two uses for a trie: as a lookup table, in which case
@@ -62,7 +67,7 @@
 ;; however, the underlying data structures naturally support associative
 ;; arrays at no extra cost, so this package does the opposite: it implements
 ;; associative arrays, and leaves it up to you to use them as lookup tables if
-;; you so desire.
+;; you so desire, by ignoring the associated data.
 ;;
 ;;
 ;; Different Types of Trie
