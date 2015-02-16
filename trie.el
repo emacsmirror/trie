@@ -1382,8 +1382,8 @@ element stored in the trie.)"
   ;; MAXNUM. The remaining arguments have the usual meanings, and should be
   ;; passed straight through from the query function's arguments.
 
-  ;; rename functions to help avoid dynamic-scoping bugs FIXME: not needed
-  ;; with lexical scoping
+  ;; rename functions to help avoid dynamic-scoping bugs
+  ;; FIXME: not needed with lexical scoping
   `(let* ((--trie-accumulate--rankfun ,rankfun)
 	  (--trie-accumulate--filter ,filter)
 	  (--trie-accumulate--resultfun ,resultfun)
@@ -1930,6 +1930,47 @@ elements that matched the corresponding groups, in order."
 ;; ================================================================
 ;;                        Fuzzy matching
 
+
+;; Basic Lewenstein distance (edit distance) functions
+;; ---------------------------------------------------
+
+(defun* Lewenstein-distance (str1 str2 &key (test 'equal))
+  "Return the Lewenstein distance between strings STR1 and STR2
+\(a.k.a. edit distance\).
+
+The Lewenstein distance is the minimum number of single-character
+insertions, deletions or substitutions required to transform STR1
+into STR2.
+
+More generally, STR1 and STR2 can be sequences of elements all of
+the same type. The optional keyword argument :test specifies the
+function to use to test equality of sequence elements, defaulting
+to `equal'."
+  (let ((row (apply #'vector (number-sequence 0 (length str2)))))
+    (dotimes (i (length str1))
+      (setq row (Lewenstein--next-row row str2 (elt str1 i) test)))
+    (aref row (1- (length row)))))
+
+
+(defalias 'edit-distance 'Lewenstein-distance)
+
+
+(defun Lewenstein--next-row (row string chr equalfun)
+  ;; Compute next row of Lewenstein distance matrix.
+  (let ((next-row (make-vector (length row) nil))
+	(i 0) inscost delcost subcost)
+    (aset next-row 0 (1+ (aref row 0)))
+    (while (< (incf i) (length row))
+      (setq inscost (1+ (aref next-row (1- i)))
+	    delcost (1+ (aref row i))
+	    subcost (if (funcall equalfun chr (elt string (1- i)))
+			(aref row (1- i))
+		      (1+ (aref row (1- i)))))
+      (aset next-row i (min inscost delcost subcost)))
+    next-row))
+
+
+
 ;; Implementation Note
 ;; -------------------
 ;; The standard dynamical-programming solution to computing Lewenstein
@@ -2054,7 +2095,7 @@ of the default key-dist-data list."
 			   (trie--node-data node))))
 
     ;; build next row of Lewenstein table
-    (setq row (trie--Lewenstein-next-row
+    (setq row (Lewenstein--next-row
 	       row string (trie--node-split node) equalfun)
 	  seq (trie--seq-append seq (trie--node-split node)))
 
@@ -2067,21 +2108,6 @@ of the default key-dist-data list."
 		  cmpfun equalfun lookupfun mapfun accumulator))
 	       (trie--node-subtree node)
 	       reverse))))
-
-
-(defun trie--Lewenstein-next-row (row string chr equalfun)
-  ;; Compute next row of Lewenstein distance matrix.
-  (let ((next-row (make-vector (length row) nil))
-	(i 0) inscost delcost subcost)
-    (aset next-row 0 (1+ (aref row 0)))
-    (while (< (incf i) (length row))
-      (setq inscost (1+ (aref next-row (1- i)))
-	    delcost (1+ (aref row i))
-	    subcost (if (funcall equalfun chr (elt string (1- i)))
-			(aref row (1- i))
-		      (1+ (aref row (1- i)))))
-      (aset next-row i (min inscost delcost subcost)))
-    next-row))
 
 
 
@@ -2166,7 +2192,7 @@ within Lewenstein distance \(edit distance\) DISTANCE of STRING."
 			      (<= (aref row (1- (length row))) distance))))
 	  ;; drop data nodes whose SEQ is greater than DISTANCE
 	  (unless (trie--node-data-p node)
-	    (setq nextrow (trie--Lewenstein-next-row
+	    (setq nextrow (Lewenstein--next-row
 			   row string (trie--node-split node) equalfun))
 	    ;; push children of non-data nodes whose SEQ is less than DISTANCE
 	    ;; onto stack
@@ -2308,7 +2334,7 @@ of the default key-dist-data list."
 			   (trie--node-data node))))
 
     ;; build next row of Lewenstein table
-    (setq row (trie--Lewenstein-next-row
+    (setq row (Lewenstein--next-row
 	       row prefix (trie--node-split node) equalfun)
 	  seq (trie--seq-append seq (trie--node-split node))
 	  pfxcost (min pfxcost (aref row (1- (length row)))))
@@ -2421,7 +2447,7 @@ DISTANCE of PREFIX."
 	   ;; drop data nodes whose SEQ is greater than DISTANCE
 	  (unless (trie--node-data-p node)
 	    ;; build next row of Lewenstein table
-	    (setq row (trie--Lewenstein-next-row
+	    (setq row (Lewenstein--next-row
 		       row prefix (trie--node-split node) equalfun)
 		  seq (trie--seq-append seq (trie--node-split node))
 		  pfxcost (min pfxcost (aref row (1- (length row)))))
