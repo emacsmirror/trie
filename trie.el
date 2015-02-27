@@ -272,6 +272,97 @@
 		(,comparison-function b a))))))
 
 
+;; massage rankfun arguments for `trie-regexp-search' results
+(if (trie-lexical-binding-p)
+    (defun trie--wrap-regexp-search-rankfun (rankfun)
+      (lambda (a b)
+	;; if car of argument contains a key+group list rather than a straight
+	;; key, remove group list
+	;; FIXME: the test for straight key, below, will fail if the key is a
+	;;        list, and the first element of the key is itself a list
+	;;        (there might be no easy way to fully fix this...)
+	(unless (or (atom (car a))
+		    (and (listp (car a))
+			 (not (sequencep (caar a)))))
+	  (setq a (cons (caar a) (cdr a))))
+	(unless (or (atom (car b))
+		    (and (listp (car b))
+			 (not (sequencep (caar b)))))
+	  (setq b (cons (caar b) (cdr b))))
+	(funcall rankfun a b)))
+  (defun trie--wrap-regexp-search-rankfun (rankfun)
+    `(lambda (a b)
+       ;; if car of argument contains a key+group list rather than a straight
+       ;; key, remove group list
+       ;; FIXME: the test for straight key, below, will fail if the key is a
+       ;;        list, and the first element of the key is itself a list
+       ;;        (there might be no easy way to fully fix this...)
+       (unless (or (atom (car a))
+  		   (and (listp (car a))
+  		       (not (sequencep (caar a)))))
+  	 (setq a (cons (caar a) (cdr a))))
+       (unless (or (atom (car b))
+  		   (and (listp (car b))
+  			(not (sequencep (caar b)))))
+  	 (setq b (cons (caar b) (cdr b))))
+       (,rankfun a b))))
+
+
+(if (trie-lexical-binding-p)
+    (defun trie--wrap-regexp-search-filter (filter)
+      (lambda (seq data)
+	;; if car of argument contains a key+group list rather than a straight
+	;; key, remove group list
+	;; FIXME: the test for straight key, below, will fail if the key is a
+	;;        list, and the first element of the key is itself a list
+	;;        (there might be no easy way to fully fix this...)
+	(unless (or (atom (car seq))
+		    (and (listp (car seq))
+			 (not (sequencep (caar seq)))))
+	  (setq seq (caar seq))
+	  ;; call filter on massaged arguments
+	  (funcall filter seq data))))
+  (defun trie--wrap-regexp-search-filter (filter)
+    `(lambda (seq data)
+       ;; if car of argument contains a key+group list rather than a straight
+       ;; key, remove group list
+       ;; FIXME: the test for straight key, below, will fail if the key is a
+       ;;        list, and the first element of the key is itself a list
+       ;;        (there might be no easy way to fully fix this...)
+       (unless (or (atom (car seq))
+		   (and (listp (car seq))
+			(not (sequencep (caar seq)))))
+	 (setq seq (caar seq))
+	 ;; call filter on massaged arguments
+	 (,filter seq data)))))
+
+
+;; create Lewenstein rank function from trie comparison function
+(if (trie-lexical-binding-p)
+    (defun trie--construct-Lewenstein-rankfun (comparison-function)
+      (let ((compfun (trie-construct-sortfun comparison-function)))
+	(lambda (a b)
+	  (cond
+	   ((< (cdar a) (cdar b)) t)
+	   ((> (cdar a) (cdar b)) nil)
+	   (t (funcall compfun (caar a) (caar b)))))))
+  (defun trie--construct-Lewenstein-rankfun (comparison-function)
+    `(lambda (a b)
+       (cond
+	((< (cdar a) (cdar b)) t)
+	((> (cdar a) (cdar b)) nil)
+	(t ,(trie-construct-sortfun comparison-function)
+	   (caar a) (caar b))))))
+
+
+;; create Lewenstein rank function from trie comparison function
+(if (trie-lexical-binding-p)
+    (defun trie--wrap-fuzzy-filter (filter)
+      (lambda (match data) (funcall filter (car match) (cdr match) data)))
+    (defun trie--wrap-fuzzy-filter (filter)
+      `(lambda (match data) (,filter (car match) (cdr match) data))))
+
+
 
 
 ;;; ----------------------------------------------------------------
@@ -1648,48 +1739,29 @@ default key-data cons cell."
   ;; convert trie from print-form if necessary
   (trie-transform-from-read-warn trie)
 
-  ;; massage rankfun to cope with grouping data
   ;; FIXME: could skip this if REGEXP contains no grouping constructs
-  ;; FIXME: crazy variable name is not needed with lexical scoping
-  (let ((--trie-regexp-search--rankfun rankfun))
-    (when rankfun
-      (setq rankfun
-	    (lambda (a b)
-	      ;; if car of argument contains a key+group list rather than a
-	      ;; straight key, remove group list
-	      ;; FIXME: the test for straight key, below, will fail if the key
-	      ;;        is a list, and the first element of the key is itself
-	      ;;        a list (there might be no easy way to fully fix
-	      ;;        this...)
-	      (unless (or (atom (car a))
-			  (and (listp (car a))
-			       (not (sequencep (caar a)))))
-		(setq a (cons (caar a) (cdr a))))
-	      (unless (or (atom (car b))
-			  (and (listp (car b))
-			       (not (sequencep (caar b)))))
-		(setq b (cons (caar b) (cdr b))))
-	      ;; call rankfun on massaged arguments
-	      (funcall --trie-regexp-search--rankfun a b))))
+  ;; massage rankfun and filter to cope with grouping data
+  (when rankfun (setq rankfun (trie--wrap-regexp-search-rankfun rankfun)))
+  (when filter (setq filter (trie--wrap-regexp-search-filter filter)))
 
-    ;; accumulate results
-    (trie--accumulate-results
-     rankfun maxnum reverse filter resultfun accumulator nil
-     (trie--do-regexp-search
-      (trie--root trie)
-      (tNFA-from-regexp regexp :test (trie--construct-equality-function
-				      (trie--comparison-function trie)))
-      (cond ((stringp regexp) "") ((listp regexp) ()) (t []))  0
-      (or (and maxnum reverse) (and (not maxnum) (not reverse)))
-      ;; FIXME: Is this a case where it would pay to replace these arguments
-      ;;        with dynamically-scoped variables, to save stack space during
-      ;;        the recursive calls to `trie--do-regexp-search'?
-      ;;        Alternatively, with lexical scoping, we could use a closure
-      ;;        for `trie--do-regexp-search' instead of a function.
-      (trie--comparison-function trie)
-      (trie--lookupfun trie)
-      (trie--mapfun trie)
-      accumulator))))
+  ;; accumulate results
+  (trie--accumulate-results
+   rankfun maxnum reverse filter resultfun accumulator nil
+   (trie--do-regexp-search
+    (trie--root trie)
+    (tNFA-from-regexp regexp :test (trie--construct-equality-function
+				    (trie--comparison-function trie)))
+    (cond ((stringp regexp) "") ((listp regexp) ()) (t []))  0
+    (or (and maxnum reverse) (and (not maxnum) (not reverse)))
+    ;; FIXME: Is this a case where it would pay to replace these arguments
+    ;;        with dynamically-scoped variables, to save stack space during
+    ;;        the recursive calls to `trie--do-regexp-search'?  Alternatively,
+    ;;        with lexical scoping, we could use a closure for
+    ;;        `trie--do-regexp-search' instead of a function.
+    (trie--comparison-function trie)
+    (trie--lookupfun trie)
+    (trie--mapfun trie)
+    accumulator)))
 
 
 
@@ -1999,7 +2071,7 @@ reverse order. Returns nil if no results are found.
 
 Returns a list of matches, with elements of the form:
 
-    (KEY DIST . DATA)
+    ((KEY . DIST) . DATA)
 
 where KEY is a matching key from the trie, DATA its associated
 data, and DIST is its Lewenstein distance \(edit distance\) from
@@ -2024,7 +2096,7 @@ lexicographically\).
 If RANKFUN is a function, it must accept two arguments, both of
 the form:
 
-    (KEY DIST . DATA)
+    ((KEY . DIST) . DATA)
 
 where KEY is a key from the trie, DIST is its Lewenstein
 distances from STRING, and DATA is its associated data. RANKFUN
@@ -2032,14 +2104,14 @@ should return non-nil if first argument is ranked strictly higher
 than the second, nil otherwise.
 
 The FILTER argument sets a filter function for the matches. If
-supplied, it is called for each possible match with two
-arguments: a KEY and a (DIST . DATA) cons cell. If the filter
-function returns nil, the match is not included in the results,
-and does not count towards MAXNUM.
+supplied, it is called for each possible match with three
+arguments: KEY, DIST and DATA. If the filter function returns
+nil, the match is not included in the results, and does not count
+towards MAXNUM.
 
 RESULTFUN defines a function used to process results before
 adding them to the final result list. If specified, it should
-accept two arguments: a KEY and a (DIST . DATA) cons cell. Its
+accept two arguments: a (KEY . DIST) cons cell and DATA. Its
 return value is what gets added to the final result list, instead
 of the default key-dist-data list."
 
@@ -2048,13 +2120,10 @@ of the default key-dist-data list."
 
   ;; construct rankfun to sort by Lewenstein distance if requested
   (when (eq rankfun t)
-    (setq rankfun `(lambda (a b)
-  		     (cond
-  		     ((< (cadr a) (cadr b)) t)
-  		     ((> (cadr a) (cadr b)) nil)
-  		     (t ,(trie-construct-sortfun
-  			  (trie--comparison-function trie))
-  			(car a) (car b))))))
+    (setq rankfun (trie--construct-Lewenstein-rankfun
+		   (trie--comparison-function trie))))
+  ;; massage filter function arguments
+  (when filter (setq filter (trie--wrap-fuzzy-filter filter)))
 
   ;; accumulate results
   (trie--accumulate-results
@@ -2091,8 +2160,8 @@ of the default key-dist-data list."
   (if (trie--node-data-p node)
       (when (<= (aref row (1- (length row))) distance)
 	(funcall accumulator
-		 seq (cons (aref row (1- (length row)))
-			   (trie--node-data node))))
+		 (cons seq (aref row (1- (length row))))
+		 (trie--node-data node)))
 
     ;; build next row of Lewenstein table
     (setq row (Lewenstein--next-row
@@ -2120,7 +2189,7 @@ defined by TRIE's comparison function, or in reverse order if
 REVERSE is non-nil. Calling `trie-stack-pop' pops the top element
 from the stack. Each stack element has the form:
 
-    (KEY DIST . DATA)
+    ((KEY . DIST) . DATA)
 
 where KEY is a matching key from the trie, DATA its associated
 data, and DIST is its Lewenstein distance \(edit distance\) from
@@ -2216,8 +2285,8 @@ within Lewenstein distance \(edit distance\) DISTANCE of STRING."
 
 	;; push next fuzzy match onto head of stack
 	(when node
-	  (push (cons seq (cons (aref row (1- (length row)))
-				(trie--node-data node)))
+	  (push (cons (cons seq (aref row (1- (length row))))
+		      (trie--node-data node))
 		store))))))
 
 
@@ -2237,7 +2306,7 @@ if no results are found.
 
 Returns a list of completions, with elements of the form:
 
-    (KEY DIST . DATA)
+    ((KEY . DIST) . DATA)
 
 where KEY is a matching completion from the trie, DATA its
 associated data, and DIST is its Lewenstein distance \(edit
@@ -2262,7 +2331,7 @@ lexicographically\).
 If RANKFUN is a function, it must accept two arguments, both of
 the form:
 
-    (KEY DIST . DATA)
+    ((KEY . DIST) . DATA)
 
 where KEY is a key from the trie, DIST is its Lewenstein
 distances from PREFIX, and DATA is its associated data. RANKFUN
@@ -2270,14 +2339,14 @@ should return non-nil if first argument is ranked strictly higher
 than the second, nil otherwise.
 
 The FILTER argument sets a filter function for the matches. If
-supplied, it is called for each possible match with two
-arguments: a KEY and a (DIST . DATA) cons cell. If the filter
-function returns nil, the match is not included in the results,
-and does not count towards MAXNUM.
+supplied, it is called for each possible match with three
+arguments: KEY, DIST and DATA. If the filter function returns
+nil, the match is not included in the results, and does not count
+towards MAXNUM.
 
 RESULTFUN defines a function used to process results before
 adding them to the final result list. If specified, it should
-accept two arguments: a KEY and a (DIST . DATA) cons cell. Its
+accept two arguments: a (KEY . DIST) cons cell and DATA. Its
 return value is what gets added to the final result list, instead
 of the default key-dist-data list."
 
@@ -2286,13 +2355,10 @@ of the default key-dist-data list."
 
   ;; construct rankfun to sort by Lewenstein distance if requested
   (when (eq rankfun t)
-    (setq rankfun `(lambda (a b)
-  		     (cond
-  		     ((< (cadr a) (cadr b)) t)
-  		     ((> (cadr a) (cadr b)) nil)
-  		     (t ,(trie-construct-sortfun
-  			  (trie--comparison-function trie))
-  			(car a) (car b))))))
+    (setq rankfun (trie--construct-Lewenstein-rankfun
+		   (trie--comparison-function trie))))
+  ;; massage filter function arguments
+  (when filter (setq filter (trie--wrap-fuzzy-filter filter)))
 
   ;; accumulate results
   (trie--accumulate-results
@@ -2330,8 +2396,8 @@ of the default key-dist-data list."
   (if (trie--node-data-p node)
       (when (<= (aref row (1- (length row))) distance)
 	(funcall accumulator
-		 seq (cons (aref row (1- (length row)))
-			   (trie--node-data node))))
+		 (cons seq (aref row (1- (length row))))
+		 (trie--node-data node)))
 
     ;; build next row of Lewenstein table
     (setq row (Lewenstein--next-row
@@ -2354,8 +2420,7 @@ of the default key-dist-data list."
       (when (<= (aref row (1- (length row))) distance)
 	(trie--mapc
 	 (lambda (n s)
-	   (funcall accumulator
-		    s (cons pfxcost (trie--node-data n))))
+	   (funcall accumulator (cons s pfxcost) (trie--node-data n)))
 	 mapfun node seq reverse))
       )))
 
@@ -2370,7 +2435,7 @@ defined by TRIE's comparison function, or in reverse order if
 REVERSE is non-nil. Calling `trie-stack-pop' pops the top element
 from the stack. Each stack element has the form:
 
-    (KEY DIST . DATA)
+    ((KEY . DIST) . DATA)
 
 where KEY is a matching completion from the trie, DATA its
 associated data, and DIST is the Lewenstein distance \(edit
@@ -2497,7 +2562,7 @@ DISTANCE of PREFIX."
 
 	;; push next fuzzy completion onto head of stack
 	(when node
-	  (push (cons seq (cons pfxcost (trie--node-data node)))
+	  (push (cons (cons seq pfxcost) (trie--node-data node))
 		store))))))
 
 
