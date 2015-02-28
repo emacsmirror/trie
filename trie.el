@@ -2083,7 +2083,8 @@ string, it must be possible to apply `string' to individual
 elements of the keys stored in the trie. The KEYs returned in the
 list will be sequences of the same type as STRING.
 
-DISTANCE must be an integer.
+DISTANCE must be a positive integer. (Note that DISTANCE=0 will
+not give meaningful results; use `trie-member' instead.)
 
 The optional integer argument MAXNUM limits the results to the
 first MAXNUM matches. Otherwise, all matches are returned.
@@ -2202,8 +2203,10 @@ elements of the keys stored in the trie. The KEYs in the matches
 returned by `trie-stack-pop' will be sequences of the same type
 as STRING.
 
-DISTANCE is an integer. The fuzzy matches in the stack will be
-within Lewenstein distance \(edit distance\) DISTANCE of STRING."
+DISTANCE is a positive integer. The fuzzy matches in the stack
+will be within Lewenstein distance \(edit distance\) DISTANCE of
+STRING. (Note that DISTANCE=0 will not give meaningful results;
+use `trie-stack' instead.)"
 
   ;; convert trie from print-form if necessary
   (trie-transform-from-read-warn trie)
@@ -2318,7 +2321,8 @@ string, it must be possible to apply `string' to individual
 elements of the keys stored in the trie. The KEYs returned in the
 list will be sequences of the same type as PREFIX.
 
-DISTANCE must be an integer.
+DISTANCE must be a positive integer. (Note that DISTANCE=0 will
+not give meaningful results; use `trie-complete' instead.)
 
 The optional integer argument MAXNUM limits the results to the
 first MAXNUM matches. Otherwise, all matches are returned.
@@ -2447,9 +2451,10 @@ string, it must be possible to apply `string' to individual
 elements of the keys stored in the trie. The KEYs in the stack
 elements will be sequences of the same type as PREFIX.
 
-DISTANCE is an integer. The fuzzy completions in the stack will
-have prefixes within Lewenstein distance \(edit distance\)
-DISTANCE of PREFIX."
+DISTANCE is a positive integer. The fuzzy completions in the
+stack will have prefixes within Lewenstein distance \(edit
+distance\) DISTANCE of PREFIX. (Note that DISTANCE=0 will not
+give meaningful results; use `trie-complete-stack' instead.)"
 
   ;; convert trie from print-form if necessary
   (trie-transform-from-read-warn trie)
