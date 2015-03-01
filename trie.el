@@ -272,71 +272,6 @@
 		(,comparison-function b a))))))
 
 
-;; massage rankfun arguments for `trie-regexp-search' results
-(if (trie-lexical-binding-p)
-    (defun trie--wrap-regexp-search-rankfun (rankfun)
-      (lambda (a b)
-	;; if car of argument contains a key+group list rather than a straight
-	;; key, remove group list
-	;; FIXME: the test for straight key, below, will fail if the key is a
-	;;        list, and the first element of the key is itself a list
-	;;        (there might be no easy way to fully fix this...)
-	(unless (or (atom (car a))
-		    (and (listp (car a))
-			 (not (sequencep (caar a)))))
-	  (setq a (cons (caar a) (cdr a))))
-	(unless (or (atom (car b))
-		    (and (listp (car b))
-			 (not (sequencep (caar b)))))
-	  (setq b (cons (caar b) (cdr b))))
-	(funcall rankfun a b)))
-  (defun trie--wrap-regexp-search-rankfun (rankfun)
-    `(lambda (a b)
-       ;; if car of argument contains a key+group list rather than a straight
-       ;; key, remove group list
-       ;; FIXME: the test for straight key, below, will fail if the key is a
-       ;;        list, and the first element of the key is itself a list
-       ;;        (there might be no easy way to fully fix this...)
-       (unless (or (atom (car a))
-  		   (and (listp (car a))
-  		       (not (sequencep (caar a)))))
-  	 (setq a (cons (caar a) (cdr a))))
-       (unless (or (atom (car b))
-  		   (and (listp (car b))
-  			(not (sequencep (caar b)))))
-  	 (setq b (cons (caar b) (cdr b))))
-       (,rankfun a b))))
-
-
-(if (trie-lexical-binding-p)
-    (defun trie--wrap-regexp-search-filter (filter)
-      (lambda (seq data)
-	;; if car of argument contains a key+group list rather than a straight
-	;; key, remove group list
-	;; FIXME: the test for straight key, below, will fail if the key is a
-	;;        list, and the first element of the key is itself a list
-	;;        (there might be no easy way to fully fix this...)
-	(unless (or (atom (car seq))
-		    (and (listp (car seq))
-			 (not (sequencep (caar seq)))))
-	  (setq seq (caar seq))
-	  ;; call filter on massaged arguments
-	  (funcall filter seq data))))
-  (defun trie--wrap-regexp-search-filter (filter)
-    `(lambda (seq data)
-       ;; if car of argument contains a key+group list rather than a straight
-       ;; key, remove group list
-       ;; FIXME: the test for straight key, below, will fail if the key is a
-       ;;        list, and the first element of the key is itself a list
-       ;;        (there might be no easy way to fully fix this...)
-       (unless (or (atom (car seq))
-		   (and (listp (car seq))
-			(not (sequencep (caar seq)))))
-	 (setq seq (caar seq))
-	 ;; call filter on massaged arguments
-	 (,filter seq data)))))
-
-
 ;; create Lewenstein rank function from trie comparison function
 (if (trie-lexical-binding-p)
     (defun trie--construct-Lewenstein-rankfun (comparison-function)
@@ -1702,39 +1637,50 @@ beginning and end of the regexp to get an unanchored match).
 
 If the regexp contains any non-shy grouping constructs, subgroup
 match data is included in the results. In this case, the car of
-each match is no longer just a key. Instead, it is a list whose
-first element is the matching key, and whose remaining elements
-are cons cells whose cars and cdrs give the start and end indices
+each match is no longer just a key. Instead, each element of the
+results list has the form
+
+    ((KEY (START1 . END1) (START2 . END2) ...) . DATA)
+
+where the (START . END) cons cells give the start and end indices
 of the elements that matched the corresponding groups, in order.
+
 
 The optional integer argument MAXNUM limits the results to the
 first MAXNUM matches. Otherwise, all matches are returned.
 
-If specified, RANKFUN must accept two arguments, both cons
-cells. The car contains a sequence from the trie (of the same
-type as REGEXP), the cdr contains its associated data. It should
-return non-nil if first argument is ranked strictly higher than
-the second, nil otherwise.
+
+If specified, RANKFUN must accept two arguments. If the regexp
+does not contain any non-shy grouping constructs, both arguments
+are (KEY . DATA) cons cells, where the car is a sequence of the
+same type as REGEXP. If the regexp does contain non-shy grouping
+constructs, both arguments are of the form
+
+    ((KEY (START1 . END1) (START2 . END2) ...) . DATA)
+
+RANKFUN should return non-nil if first argument is ranked
+strictly higher than the second, nil otherwise.
+
 
 The FILTER argument sets a filter function for the matches. If
 supplied, it is called for each possible match with two
-arguments: the matching key, and its associated data. If the
-filter function returns nil, the match is not included in the
-results, and does not count towards MAXNUM.
+arguments: a key and its associated data. If the regexp contains
+non-shy grouping constructs, the first argument is of the form
+
+    (KEY (START1 . END1) (START2 . END2) ...)
+
+If the FILTER function returns nil, the match is not included in
+the results, and does not count towards MAXNUM.
+
 
 RESULTFUN defines a function used to process results before
 adding them to the final result list. If specified, it should
-accept two arguments: a key and its associated data. Its return
-value is what gets added to the final result list, instead of the
-default key-data cons cell."
+accept two arguments, of the same form as those for FILTER (see
+above). Its return value is what gets added to the final result
+list, instead of the default key-data cons cell."
 
   ;; convert trie from print-form if necessary
   (trie-transform-from-read-warn trie)
-
-  ;; FIXME: could skip this if REGEXP contains no grouping constructs
-  ;; massage rankfun and filter to cope with grouping data
-  (when rankfun (setq rankfun (trie--wrap-regexp-search-rankfun rankfun)))
-  (when filter (setq filter (trie--wrap-regexp-search-filter filter)))
 
   ;; accumulate results
   (trie--accumulate-results
@@ -1840,7 +1786,7 @@ default key-data cons cell."
 
 
 
-(defun trie-regexp-stack  (trie regexp &optional reverse)
+(defun trie-regexp-stack (trie regexp &optional reverse)
   "Return an object that allows matches to REGEXP to be accessed
 as if they were a stack.
 
@@ -2078,13 +2024,10 @@ list will be sequences of the same type as STRING.
 DISTANCE must be a positive integer. (Note that DISTANCE=0 will
 not give meaningful results; use `trie-member' instead.)
 
-The optional integer argument MAXNUM limits the results to the
-first MAXNUM matches. Otherwise, all matches are returned.
 
-RANKFUN overrides the default ordering of the results. If it is
-`t', matches are instead ordered by increasing Lewenstein
-distance \(with same-distance matches ordered
-lexicographically\).
+RANKFUN overrides the default ordering of the results. If it is t,
+matches are instead ordered by increasing Lewenstein distance
+\(with same-distance matches ordered lexicographically\).
 
 If RANKFUN is a function, it must accept two arguments, both of
 the form:
@@ -2096,15 +2039,19 @@ distances from STRING, and DATA is its associated data. RANKFUN
 should return non-nil if first argument is ranked strictly higher
 than the second, nil otherwise.
 
+
+The optional integer argument MAXNUM limits the results to the
+first MAXNUM matches. Otherwise, all matches are returned.
+
 The FILTER argument sets a filter function for the matches. If
-supplied, it is called for each possible match with three
-arguments: KEY, DIST and DATA. If the filter function returns
-nil, the match is not included in the results, and does not count
-towards MAXNUM.
+supplied, it is called for each possible match with two
+arguments: a (KEY . DIST) cons cell, and DATA. If the filter
+function returns nil, the match is not included in the results,
+and does not count towards MAXNUM.
 
 RESULTFUN defines a function used to process results before
 adding them to the final result list. If specified, it should
-accept two arguments: a (KEY . DIST) cons cell and DATA. Its
+accept two arguments: a (KEY . DIST) cons cell, and DATA. Its
 return value is what gets added to the final result list, instead
 of the default key-dist-data list."
 
@@ -2115,8 +2062,6 @@ of the default key-dist-data list."
   (when (eq rankfun t)
     (setq rankfun (trie--construct-Lewenstein-rankfun
 		   (trie--comparison-function trie))))
-  ;; massage filter function arguments
-  (when filter (setq filter (trie--wrap-fuzzy-filter filter)))
 
   ;; accumulate results
   (trie--accumulate-results
@@ -2306,7 +2251,7 @@ Returns a list of completions, with elements of the form:
 where KEY is a matching completion from the trie, DATA its
 associated data, PFXLEN is the length of the prefix part of KEY,
 and DIST is its Lewenstein distance \(edit distance\) from
-STRING.
+PREFIX.
 
 PREFIX is a sequence (vector, list or string), whose elements are
 of the same type as elements of the trie keys. If PREFIX is a
@@ -2320,9 +2265,10 @@ not give meaningful results; use `trie-complete' instead.)
 The optional integer argument MAXNUM limits the results to the
 first MAXNUM matches. Otherwise, all matches are returned.
 
-RANKFUN overrides the default ordering of the results. If it is
-`t', matches are instead ordered by increasing Lewenstein
-distance of their prefix \(with same-distance matches ordered
+
+RANKFUN overrides the default ordering of the results. If it is t,
+matches are instead ordered by increasing Lewenstein distance of
+their prefix \(with same-distance prefixes ordered
 lexicographically\).
 
 If RANKFUN is a function, it must accept two arguments, both of
@@ -2335,11 +2281,12 @@ distances from PREFIX, and DATA is its associated data. RANKFUN
 should return non-nil if first argument is ranked strictly higher
 than the second, nil otherwise.
 
+
 The FILTER argument sets a filter function for the matches. If
-supplied, it is called for each possible match with four
-arguments: KEY, DIST, PFXLEN and DATA. If the filter function
-returns nil, the match is not included in the results, and does
-not count towards MAXNUM.
+supplied, it is called for each possible match with two
+arguments: a (KEY DIST PFXLEN) list, and DATA. If the filter
+function returns nil, the match is not included in the results,
+and does not count towards MAXNUM.
 
 RESULTFUN defines a function used to process results before
 adding them to the final result list. If specified, it should
@@ -2354,8 +2301,6 @@ of the default key-dist-data list."
   (when (eq rankfun t)
     (setq rankfun (trie--construct-Lewenstein-rankfun
 		   (trie--comparison-function trie))))
-  ;; massage filter function arguments
-  (when filter (setq filter (trie--wrap-fuzzy-filter filter)))
 
   ;; accumulate results
   (trie--accumulate-results
