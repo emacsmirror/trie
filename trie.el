@@ -343,24 +343,16 @@
       (let ((compfun (trie-construct-sortfun comparison-function)))
 	(lambda (a b)
 	  (cond
-	   ((< (cdar a) (cdar b)) t)
-	   ((> (cdar a) (cdar b)) nil)
-	   (t (funcall compfun (caar a) (caar b)))))))
+	   ((< (nth 1 (car a)) (nth 1 (car b))) t)
+	   ((> (nth 1 (car a)) (nth 1 (car b))) nil)
+	   (t (funcall compfun (nth 0 (car a)) (nth 0 (car b))))))))
   (defun trie--construct-Lewenstein-rankfun (comparison-function)
     `(lambda (a b)
        (cond
-	((< (cdar a) (cdar b)) t)
-	((> (cdar a) (cdar b)) nil)
+	((< (nth 1 (car a)) (nth 1 (car b))) t)
+	((> (nth 1 (car a)) (nth 1 (car b))) nil)
 	(t ,(trie-construct-sortfun comparison-function)
-	   (caar a) (caar b))))))
-
-
-;; create Lewenstein rank function from trie comparison function
-(if (trie-lexical-binding-p)
-    (defun trie--wrap-fuzzy-filter (filter)
-      (lambda (match data) (funcall filter (car match) (cdr match) data)))
-    (defun trie--wrap-fuzzy-filter (filter)
-      `(lambda (match data) (,filter (car match) (cdr match) data))))
+	   (nth 0 (car a)) (nth 0 (car b)))))))
 
 
 
@@ -2170,7 +2162,7 @@ of the default key-dist-data list."
 	  seq (trie--seq-append seq (trie--node-split node)))
 
     ;; as long as some row entry is < DISTANCE, recursively search below NODE
-    (when (< (apply #'min (append row nil)) distance)
+    (when (<= (apply #'min (append row nil)) distance)
       (funcall mapfun
 	       (lambda (n)
 		 (trie--do-fuzzy-match
@@ -2309,11 +2301,12 @@ if no results are found.
 
 Returns a list of completions, with elements of the form:
 
-    ((KEY . DIST) . DATA)
+    ((KEY DIST PFXLEN) . DATA)
 
 where KEY is a matching completion from the trie, DATA its
-associated data, and DIST is its Lewenstein distance \(edit
-distance\) from STRING.
+associated data, PFXLEN is the length of the prefix part of KEY,
+and DIST is its Lewenstein distance \(edit distance\) from
+STRING.
 
 PREFIX is a sequence (vector, list or string), whose elements are
 of the same type as elements of the trie keys. If PREFIX is a
@@ -2335,7 +2328,7 @@ lexicographically\).
 If RANKFUN is a function, it must accept two arguments, both of
 the form:
 
-    ((KEY . DIST) . DATA)
+    ((KEY DIST PFXLEN) . DATA)
 
 where KEY is a key from the trie, DIST is its Lewenstein
 distances from PREFIX, and DATA is its associated data. RANKFUN
@@ -2343,14 +2336,14 @@ should return non-nil if first argument is ranked strictly higher
 than the second, nil otherwise.
 
 The FILTER argument sets a filter function for the matches. If
-supplied, it is called for each possible match with three
-arguments: KEY, DIST and DATA. If the filter function returns
-nil, the match is not included in the results, and does not count
-towards MAXNUM.
+supplied, it is called for each possible match with four
+arguments: KEY, DIST, PFXLEN and DATA. If the filter function
+returns nil, the match is not included in the results, and does
+not count towards MAXNUM.
 
 RESULTFUN defines a function used to process results before
 adding them to the final result list. If specified, it should
-accept two arguments: a (KEY . DIST) cons cell and DATA. Its
+accept two arguments: a (KEY DIST PFXLEN) list, and DATA. Its
 return value is what gets added to the final result list, instead
 of the default key-dist-data list."
 
@@ -2373,7 +2366,7 @@ of the default key-dist-data list."
 	       node
 	       (apply #'vector (number-sequence 0 (length prefix)))
 	       (cond ((stringp prefix) "") ((listp prefix) ()) (t []))
-	       (length prefix)
+	       (length prefix) 0
 	       ;; FIXME: Would it pay to replace these arguments with
 	       ;;        dynamically-scoped variables, to save stack space?
 	       prefix distance (if maxnum reverse (not reverse))
@@ -2387,7 +2380,8 @@ of the default key-dist-data list."
 	    (if maxnum reverse (not reverse)))))
 
 
-(defun trie--do-fuzzy-complete (node row seq pfxcost prefix distance reverse
+(defun trie--do-fuzzy-complete (node row seq pfxcost pfxlen
+				prefix distance reverse
 				cmpfun equalfun lookupfun mapfun accumulator)
   ;; Search everything below NODE for completions of prefixes within
   ;; Lewenstein distance DISTANCE of PREFIX. ROW is the previous row of the
@@ -2400,31 +2394,33 @@ of the default key-dist-data list."
   (if (trie--node-data-p node)
       (when (<= (aref row (1- (length row))) distance)
 	(funcall accumulator
-		 (cons seq (aref row (1- (length row))))
+		 (list seq (aref row (1- (length row))) (length seq))
 		 (trie--node-data node)))
 
     ;; build next row of Lewenstein table
     (setq row (Lewenstein--next-row
 	       row prefix (trie--node-split node) equalfun)
-	  seq (trie--seq-append seq (trie--node-split node))
-	  pfxcost (min pfxcost (aref row (1- (length row)))))
+	  seq (trie--seq-append seq (trie--node-split node)))
+    (when (<= (aref row (1- (length row))) pfxcost)
+      (setq pfxcost (aref row (1- (length row)))
+	    pfxlen (length seq)))
 
     ;; as long as some row entry is < DISTANCE, recursively search below NODE
     (if (< (apply #'min (append row nil)) distance)
 	(funcall mapfun
 		 (lambda (n)
 		   (trie--do-fuzzy-complete
-		    n row seq pfxcost prefix distance reverse
+		    n row seq pfxcost pfxlen prefix distance reverse
 		    cmpfun equalfun lookupfun mapfun accumulator))
 		 (trie--node-subtree node)
 		 reverse)
 
       ;; otherwise, if we've found a prefix within DISTANCE of PREFIX,
       ;; accumulate all completions below node
-      (when (<= (aref row (1- (length row))) distance)
+      (when (<= pfxcost distance)
 	(trie--mapc
 	 (lambda (n s)
-	   (funcall accumulator (cons s pfxcost) (trie--node-data n)))
+	   (funcall accumulator (list s pfxcost pfxlen) (trie--node-data n)))
 	 mapfun node seq reverse))
       )))
 
@@ -2439,11 +2435,12 @@ defined by TRIE's comparison function, or in reverse order if
 REVERSE is non-nil. Calling `trie-stack-pop' pops the top element
 from the stack. Each stack element has the form:
 
-    ((KEY . DIST) . DATA)
+    ((KEY DIST PFXLEN) . DATA)
 
 where KEY is a matching completion from the trie, DATA its
-associated data, and DIST is the Lewenstein distance \(edit
-distance\) from PREFIX of the prefix whose completion is KEY.
+associated data, PFXLEN is the length of the prefix part of KEY,
+and DIST is the Lewenstein distance \(edit distance\) from PREFIX
+of the prefix whose completion is KEY.
 
 PREFIX is a sequence (vector, list or string), whose elements are
 of the same type as elements of the trie keys. If PREFIX is a
@@ -2473,10 +2470,10 @@ give meaningful results; use `trie-complete-stack' instead.)"
     (push (list seq
 		(funcall (trie--stack-createfun trie)
 			 (trie--node-subtree (trie--root trie))
-			 reverse)
+			 reverse)  ; node
 		prefix distance
-		(apply #'vector (number-sequence 0 (length prefix)))
-		(length prefix))
+		(apply #'vector (number-sequence 0 (length prefix)))  ; row
+		(length prefix) 0)  ; pfxcost pfxlen
 	  store)
     (trie--fuzzy-completion-stack-repopulate
      store reverse
@@ -2498,7 +2495,8 @@ give meaningful results; use `trie-complete-stack' instead.)"
   (when store
     (let ((equalfun (trie--construct-equality-function comparison-function)))
 
-      (destructuring-bind (seq node prefix distance row pfxcost) (car store)
+      (destructuring-bind (seq node prefix distance row pfxcost pfxlen)
+	  (car store)
 	(setq node (funcall stack-popfun node))
 	(when (funcall stack-emptyfun (nth 1 (car store)))
 	  ;; using (pop store) here produces irritating compiler warnings
@@ -2519,8 +2517,10 @@ give meaningful results; use `trie-complete-stack' instead.)"
 	    ;; build next row of Lewenstein table
 	    (setq row (Lewenstein--next-row
 		       row prefix (trie--node-split node) equalfun)
-		  seq (trie--seq-append seq (trie--node-split node))
-		  pfxcost (min pfxcost (aref row (1- (length row)))))
+		  seq (trie--seq-append seq (trie--node-split node)))
+	    (when (<= (aref row (1- (length row))) pfxcost)
+	      (setq pfxcost (aref row (1- (length row)))
+		    pfxlen (length seq)))
 
 	    (cond
 	     ;; if we're completing a prefix, always push next node onto stack
@@ -2529,7 +2529,7 @@ give meaningful results; use `trie-complete-stack' instead.)"
 	       (list seq
 		     (funcall stack-createfun
 			      (trie--node-subtree node) reverse)
-		     prefix t row pfxcost)
+		     prefix t row pfxcost pfxlen)
 	       store))
 
 	     ;; if we've found a prefix within DISTANCE of PREFIX, then
@@ -2540,7 +2540,7 @@ give meaningful results; use `trie-complete-stack' instead.)"
 		     (funcall stack-createfun
 			      (trie--node-subtree node) reverse)
 		     ;; t in distance slot indicates completing
-		     prefix t row pfxcost)
+		     prefix t row pfxcost pfxlen)
 	       store))
 
 	     ;; if some row entry for non-data node is < DISTANCE, push node
@@ -2550,7 +2550,7 @@ give meaningful results; use `trie-complete-stack' instead.)"
 	       (list seq
 		     (funcall stack-createfun
 			      (trie--node-subtree node) reverse)
-		     prefix distance row pfxcost)
+		     prefix distance row pfxcost pfxlen)
 	       store))))
 
 	  ;; get next node from stack
@@ -2567,7 +2567,7 @@ give meaningful results; use `trie-complete-stack' instead.)"
 
 	;; push next fuzzy completion onto head of stack
 	(when node
-	  (push (cons (cons seq pfxcost) (trie--node-data node))
+	  (push (cons (list seq pfxcost pfxlen) (trie--node-data node))
 		store))))))
 
 
