@@ -1,6 +1,6 @@
 ;;; trie.el --- Trie data structure  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2008-2015  Free Software Foundation, Inc
+;; Copyright (C) 2008-2015, 2017  Free Software Foundation, Inc
 
 ;; Author: Toby Cubitt <toby-predictive@dr-qubit.org>
 ;; Version: 0.3
@@ -1090,7 +1090,7 @@ bind any variables with names commencing \"--\"."
 	      (pushed '())
 	      ))
 	    (:constructor
-	     trie--completion-stack-create
+	     trie--complete-stack-create
 	     (trie prefix
 	      &optional
 	      reverse
@@ -1101,7 +1101,7 @@ bind any variables with names commencing \"--\"."
 	      (stackpopfun (trie--stack-popfun trie))
 	      (stackemptyfun (trie--stack-emptyfun trie))
 	      (repopulatefun #'trie--stack-repopulate)
-	      (store (trie--completion-stack-construct-store
+	      (store (trie--complete-stack-construct-store
 		      trie prefix reverse))
 	      (pushed '())
 	      ))
@@ -1138,7 +1138,7 @@ bind any variables with names commencing \"--\"."
 	      (pushed '())
 	      ))
 	    (:constructor
-	     trie--fuzzy-completion-stack-create
+	     trie--fuzzy-complete-stack-create
 	     (trie prefix distance
 	      &optional
 	      reverse
@@ -1148,8 +1148,8 @@ bind any variables with names commencing \"--\"."
 	      (stackcreatefun (trie--stack-createfun trie))
 	      (stackpopfun (trie--stack-popfun trie))
 	      (stackemptyfun (trie--stack-emptyfun trie))
-	      (repopulatefun #'trie--fuzzy-completion-stack-repopulate)
-	      (store (trie--fuzzy-completion-stack-construct-store
+	      (repopulatefun #'trie--fuzzy-complete-stack-repopulate)
+	      (store (trie--fuzzy-complete-stack-construct-store
 		      trie prefix distance reverse))
 	      (pushed '())
 	      ))
@@ -1168,21 +1168,22 @@ REVERSE is non-nil. Calling `trie-stack-pop' pops the top element
 \(a cons cell containing a key and its associated data\) from the
 stack.
 
-Optional argument TYPE \(one of the symbols vector, lisp or
-string\) sets the type of sequence used for the keys. \(If TYPE
-is string, it must be possible to apply `string' to individual
-elements of TRIE keys.\)
+Optional argument TYPE \(one of the symbols `vector', `lisp' or
+`string'\) sets the type of sequence used for the keys,
+defaulting to `vector'. \(If TYPE is string, it must be possible
+to apply `string' to individual elements of TRIE keys.\)
 
 Note that any modification to TRIE *immediately* invalidates all
 trie-stacks created before the modification \(in particular,
 calling `trie-stack-pop' will give unpredictable results\).
 
 Operations on trie-stacks are significantly more efficient than
-constructing a real stack from the trie and using standard stack
-functions. As such, they can be useful in implementing efficient
-algorithms over tries. However, in cases where mapping functions
-`trie-mapc', `trie-mapcar' or `trie-mapf' would be sufficient, it
-may be better to use one of those instead."
+constructing a real stack containing all the contents of the trie
+and using standard stack functions. As such, they can be useful
+in implementing efficient algorithms over tries. However, in
+cases where mapping functions `trie-mapc', `trie-mapcar' or
+`trie-mapf' would be sufficient, it may be better to use one of
+those instead."
   ;; convert trie from print-form if necessary
   (trie-transform-from-read-warn trie)
   ;; if stack functions aren't defined for trie type, throw error
@@ -1279,6 +1280,38 @@ element stored in the trie.)"
 
 
 
+;; trie-stacks *are* iterators (with additional push and inspect-first-element
+;; operations). If we're running on a modern Emacs that includes the
+;; `generator' library, we can trivially define trie iterator generators in
+;; terms of trie-stacks.
+
+(heap--when-generators
+ (iter-defun trie-iter (trie &optional type reverse)
+   "Return a trie iterator object.
+
+Calling `iter-next' on this object will retrieve the next element
+\(a cons cell containing a key and its associated data\) from
+TRIE, in \"lexicographic\" order, i.e. the order defined by the
+trie's comparison function, or in reverse order if REVERSE is
+non-nil.
+
+Optional argument TYPE \(one of the symbols `vector', `list' or
+`string'\) sets the type of sequence used for the keys,
+defaulting to `vector'. \(If TYPE is string, it must be possible
+to apply `string' to individual elements of TRIE keys.\)
+
+Note that any modification to TRIE *immediately* invalidates all
+iterators created from TRIE before the modification \(in
+particular, calling `iter-next' will give unpredictable
+results\)."
+   (let ((stack (trie-stack trie type reverse)))
+     (while (not (trie-stack-empty-p stack))
+       (iter-yield (trie-stack-pop stack))))))
+
+
+
+
+
 
 ;; ================================================================
 ;;                   Query-building utility macros
@@ -1289,11 +1322,11 @@ element stored in the trie.)"
 ;; partial heap-sort to find the k=MAXNUM highest ranked matches among the n
 ;; possibile matches. This has worst-case time complexity O(n log k), and is
 ;; both simple and elegant. An optimal algorithm (e.g. partial quick-sort
-;; discarding the irrelevant partition at each step) would have complexity O(n
-;; + k log k), but is probably not worth the extra coding effort, and would
-;; have worse space complexity unless coded to work "in-place", which would be
-;; highly non-trivial. (I haven't done any benchmarking, though, so feel free
-;; to do so and let me know the results!)
+;; discarding the irrelevant partition at each step) would have complexity
+;; O(n + k log k), but is probably not worth the extra coding effort. It would
+;; also have worse space complexity unless coded to work "in-place", which
+;; would be highly non-trivial. (I haven't done any benchmarking, though, so
+;; feel free to do so and let me know the results!)
 
 (defun trie--construct-accumulator (maxnum filter resultfun)
   ;; Does what it says on the tin! | sed -e 's/tin/macro name/'
@@ -1575,10 +1608,10 @@ instead."
   (if (not (functionp (trie--stack-createfun trie)))
       (error "Trie type does not support stack operations")
     ;; otherwise, create and initialise a stack
-    (trie--completion-stack-create trie prefix reverse)))
+    (trie--complete-stack-create trie prefix reverse)))
 
 
-(defun trie--completion-stack-construct-store (trie prefix reverse)
+(defun trie--complete-stack-construct-store (trie prefix reverse)
   ;; Construct store for completion stack based on TRIE.
   (let (store node)
     (if (or (atom prefix)
@@ -1604,6 +1637,34 @@ instead."
      (trie--stack-createfun trie)
      (trie--stack-popfun trie)
      (trie--stack-emptyfun trie))))
+
+
+(heap--when-generators
+ (iter-defun trie-complete-iter (trie prefix &optional reverse)
+   "Return an iterator object for completions of PREFIX in TRIE.
+
+Calling `iter-next' on this object will retrieve the next
+completion \(a cons cell containing a completion and its
+associated data\) of PREFIX in the TRIE, in \"lexicographic\"
+order, i.e. the order defined by the trie's comparison function,
+or in reverse order if REVERSE is non-nil.
+
+PREFIX must be a sequence (vector, list or string) that forms the
+initial part of a TRIE key, or a list of such sequences. \(If
+PREFIX is a string, it must be possible to apply `string' to
+individual elements of TRIE keys.\) The completions returned by
+`iter-next' will be sequences of the same type as KEY. If PREFIX
+is a list of sequences, they must all be of the same type. In
+this case, the iterator yields completions of all sequences in
+the list.
+
+Note that any modification to TRIE *immediately* invalidates all
+iterators created from TRIE before the modification \(in
+particular, calling `iter-next' will give unpredictable
+results\)."
+   (let ((stack (trie-complete-stack trie prefix reverse)))
+     (while (not (trie-stack-empty-p stack))
+       (iter-yield (trie-stack-pop stack))))))
 
 
 
@@ -1939,6 +2000,49 @@ elements that matched the corresponding groups, in order."
   store)
 
 
+(heap--when-generators
+ (iter-defun trie-regexp-iter (trie regexp &optional reverse)
+   "Return an iterator object for REGEXP matches in TRIE.
+
+Calling `iter-next' on this object will retrieve the next match
+\(a cons cell containing a key and its associated data\) for
+REGEXP in the TRIE, in \"lexicographic\" order, i.e. the order
+defined by the trie's comparison function, or in reverse order if
+REVERSE is non-nil.
+
+REGEXP is a regular expression, but it need not necessarily be a
+string. It must be a sequence \(vector, list or string\) whose
+elements either have the same type as elements of the trie keys
+\(which behave as literals in the regexp\), or are any of the
+usual regexp special characters \(character type\) or backslash
+constructs \(string type\).
+
+If REGEXP is a string, it must be possible to apply `string' to
+individual elements of the keys stored in the trie. The matches
+returned by `iter-next' will be sequences of the same type as
+KEY.
+
+Back-references and non-greedy postfix operators are *not*
+supported, and the matches are always anchored, so `$' and `^'
+lose their special meanings.
+
+If the regexp contains any non-shy grouping constructs, subgroup
+match data is included in the results. In this case, the car of
+each match \(as returned by a call to `iter-next'\) is no longer
+just a key. Instead, it is a list whose first element is the
+matching key, and whose remaining elements are cons cells whose
+cars and cdrs give the start and end indices of the elements that
+matched the corresponding groups, in order.
+
+Note that any modification to TRIE *immediately* invalidates all
+iterators created from TRIE before the modification \(in
+particular, calling `iter-next' will give unpredictable
+results\)."
+   (let ((stack (trie-regexp-stack trie regexp reverse)))
+     (while (not (trie-stack-empty-p stack))
+       (iter-yield (trie-stack-pop stack))))))
+
+
 
 
 ;; ================================================================
@@ -2146,16 +2250,19 @@ as STRING.
 
 DISTANCE is a positive integer. The fuzzy matches in the stack
 will be within Lewenstein distance \(edit distance\) DISTANCE of
-STRING. (Note that DISTANCE=0 will not give meaningful results;
-use `trie-stack' instead.)"
-
+STRING."
   ;; convert trie from print-form if necessary
   (trie-transform-from-read-warn trie)
   ;; if stack functions aren't defined for trie type, throw error
-  (if (not (functionp (trie--stack-createfun trie)))
-      (error "Trie type does not support stack operations")
-    ;; otherwise, create and initialise a fuzzy stack
-    (trie--fuzzy-match-stack-create trie string distance reverse)))
+  (cond
+   ((not (functionp (trie--stack-createfun trie)))
+    (error "Trie type does not support stack operations"))
+   ;; fuzzy-match-stacks don't work for distance=0; return a `trie-stack'
+   ;; instead
+   ((= distance 0)
+    (trie--stack-create trie string reverse))
+   (t ;; otherwise, create and initialise a fuzzy match stack
+    (trie--fuzzy-match-stack-create trie string distance reverse))))
 
 
 (defun trie--fuzzy-match-stack-construct-store
@@ -2232,6 +2339,42 @@ use `trie-stack' instead.)"
 	  (push (cons (cons seq (aref row (1- (length row))))
 		      (trie--node-data node))
 		store))))))
+
+
+(heap--when-generators
+ (iter-defun trie-fuzzy-match-iter (trie string distance &optional reverse)
+   "Return an iterator object for fuzzy matches to STRING in TRIE.
+
+Calling `iter-next' on this object will return the next match
+within DISTANCE of STRING in TRIE, in \"lexicographic\" order,
+i.e. the order defined by the trie's comparison function, or in
+reverse order if REVERSE is non-nil. Each returned element has
+the form:
+
+    ((KEY . DIST) . DATA)
+
+where KEY is a matching key from the trie, DATA its associated
+data, and DIST is its Lewenstein distance \(edit distance\) from
+STRING.
+
+STRING is a sequence (vector, list or string) whose elements are
+of the same type as elements of the trie keys. If STRING is a
+string, it must be possible to apply `string' to individual
+elements of the keys stored in the trie. The KEYs in the matches
+returned by `iter-next' will be sequences of the same type as
+STRING.
+
+DISTANCE is a positive integer. The fuzzy matches in the stack
+will be within Lewenstein distance \(edit distance\) DISTANCE of
+STRING.
+
+Note that any modification to TRIE *immediately* invalidates all
+iterators created from TRIE before the modification \(in
+particular, calling `iter-next' will give unpredictable
+results\)."
+   (let ((stack (trie-fuzzy-match-stack trie string distance reverse)))
+     (while (not (trie-stack-empty-p stack))
+       (iter-yield (trie-stack-pop stack))))))
 
 
 
@@ -2401,17 +2544,21 @@ DISTANCE is a positive integer. The fuzzy completions in the
 stack will have prefixes within Lewenstein distance \(edit
 distance\) DISTANCE of PREFIX. (Note that DISTANCE=0 will not
 give meaningful results; use `trie-complete-stack' instead.)"
-
   ;; convert trie from print-form if necessary
   (trie-transform-from-read-warn trie)
-  ;; if stack functions aren't defined for trie type, throw error
-  (if (not (functionp (trie--stack-createfun trie)))
-      (error "Trie type does not support stack operations")
-    ;; otherwise, create and initialise a fuzzy stack
-    (trie--fuzzy-completion-stack-create trie prefix distance reverse)))
+  (cond
+   ;; if stack functions aren't defined for trie type, throw error
+   ((not (functionp (trie--stack-createfun trie)))
+    (error "Trie type does not support stack/iterator operations"))
+   ;; fuzzy-complete-stacks don't work for distance=0; return
+   ;; a `trie-complete-stack' instead
+   ((= distance 0)
+    (trie--complete-stack-create trie prefix reverse))
+   (t ;; otherwise, create and initialise a fuzzy stack
+    (trie--fuzzy-complete-stack-create trie prefix distance reverse))))
 
 
-(defun trie--fuzzy-completion-stack-construct-store
+(defun trie--fuzzy-complete-stack-construct-store
     (trie prefix distance &optional reverse)
   ;; Construct store for fuzzy completion stack based on TRIE.
   (let ((seq (cond ((stringp prefix) "") ((listp prefix) ()) (t [])))
@@ -2424,7 +2571,7 @@ give meaningful results; use `trie-complete-stack' instead.)"
 		(apply #'vector (number-sequence 0 (length prefix)))  ; row
 		(length prefix) 0)  ; pfxcost pfxlen
 	  store)
-    (trie--fuzzy-completion-stack-repopulate
+    (trie--fuzzy-complete-stack-repopulate
      store reverse
      (trie--comparison-function trie)
      (trie--lookupfun trie)
@@ -2433,7 +2580,7 @@ give meaningful results; use `trie-complete-stack' instead.)"
      (trie--stack-emptyfun trie))))
 
 
-(defun trie--fuzzy-completion-stack-repopulate
+(defun trie--fuzzy-complete-stack-repopulate
   (store reverse comparison-function _lookupfun
 	 stack-createfun stack-popfun stack-emptyfun)
   ;; Recursively push matching children of the node at the head of STORE
@@ -2518,6 +2665,44 @@ give meaningful results; use `trie-complete-stack' instead.)"
 	(when node
 	  (push (cons (list seq pfxcost pfxlen) (trie--node-data node))
 		store))))))
+
+
+(heap--when-generators
+ (iter-defun trie-fuzzy-complete-iter (trie prefix distance &optional reverse)
+   "Return an iterator object for fuzzy matches of STRING in TRIE.
+
+Calling `iter-next' on this object will return the next match
+within DISTANCE of STRING in TRIE, in \"lexicographic\" order,
+i.e. the order defined by the trie's comparison function, or in
+reverse order if REVERSE is non-nil. Each returned element has
+the form:
+
+    ((KEY DIST PFXLEN) . DATA)
+
+where KEY is a matching completion from the trie, DATA its
+associated data, PFXLEN is the length of the prefix part of KEY,
+and DIST is the Lewenstein distance \(edit distance\) of that
+prefix part from PREFIX
+
+PREFIX is a sequence (vector, list or string), whose elements are
+of the same type as elements of the trie keys. If PREFIX is a
+string, it must be possible to apply `string' to individual
+elements of the keys stored in the trie. The KEYs in the elements
+returned by `iter-next' will be sequences of the same type as
+PREFIX.
+
+DISTANCE is a positive integer. The fuzzy completions returned by
+`iter-next' will have prefixes within Lewenstein distance \(edit
+distance\) DISTANCE of PREFIX.
+
+Note that any modification to TRIE *immediately* invalidates all
+iterators created from TRIE before the modification \(in
+particular, calling `iter-next' will give unpredictable
+results\)."
+   (let ((stack (trie-fuzzy-complete-stack trie prefix distance reverse)))
+     (while (not (trie-stack-empty-p stack))
+       (iter-yield (trie-stack-pop stack))))))
+
 
 
 
