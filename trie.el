@@ -177,6 +177,68 @@
 ;;; ================================================================
 ;;;           Internal utility functions and macros
 
+(defmacro trie--if-lexical-binding (then else)
+  "If lexical binding is in effect, evaluate THEN, otherwise ELSE."
+  (declare (indent 1) (debug t))
+  (if (let ((tempvar nil)
+	    (f (let ((tempvar t)) (lambda () tempvar))))
+	tempvar  ;; shut up "unused lexical variable" byte-compiler warning
+	(funcall f))
+      then else))
+
+
+;; wrap CMPFUN for use in a subtree
+(trie--if-lexical-binding
+    (defun trie--wrap-cmpfun (cmpfun)
+      (lambda (a b)
+	(setq a (trie--node-split a)
+	      b (trie--node-split b))
+	(cond ((eq a trie--terminator)
+	       (if (eq b trie--terminator) nil t))
+	      ((eq b trie--terminator) nil)
+	      (t (funcall cmpfun a b)))))
+  (defun trie--wrap-cmpfun (cmpfun)
+    `(lambda (a b)
+       (setq a (trie--node-split a)
+	     b (trie--node-split b))
+       (cond ((eq a trie--terminator)
+	      (if (eq b trie--terminator) nil t))
+	     ((eq b trie--terminator) nil)
+	     (t (,cmpfun a b))))))
+
+
+;; create equality function from trie comparison function
+(trie--if-lexical-binding
+    (defun trie--construct-equality-function (comparison-function)
+      (lambda (a b)
+	 (not (or (funcall comparison-function a b)
+		  (funcall comparison-function b a)))))
+  (defun trie--construct-equality-function (comparison-function)
+    `(lambda (a b)
+       (not (or (,comparison-function a b)
+		(,comparison-function b a))))))
+
+
+;; create Lewenstein rank function from trie comparison function
+(trie--if-lexical-binding
+    (defun trie--construct-Lewenstein-rankfun (comparison-function)
+      (let ((compfun (trie-construct-sortfun comparison-function)))
+	(lambda (a b)
+	  (cond
+	   ((< (nth 1 (car a)) (nth 1 (car b))) t)
+	   ((> (nth 1 (car a)) (nth 1 (car b))) nil)
+	   (t (funcall compfun (nth 0 (car a)) (nth 0 (car b))))))))
+  (defun trie--construct-Lewenstein-rankfun (comparison-function)
+    `(lambda (a b)
+       (cond
+	((< (nth 1 (car a)) (nth 1 (car b))) t)
+	((> (nth 1 (car a)) (nth 1 (car b))) nil)
+	(t ,(trie-construct-sortfun comparison-function)
+	   (nth 0 (car a)) (nth 0 (car b)))))))
+
+
+
+
 ;;; ----------------------------------------------------------------
 ;;;           Functions and macros for handling a trie.
 
@@ -230,64 +292,6 @@
   createfun insertfun deletefun lookupfun mapfun emptyfun
   stack-createfun stack-popfun stack-emptyfun
   transform-for-print transform-from-read print-form)
-
-
-(defmacro trie-lexical-binding-p ()
-  "Return non-nil if lexical binding is in effect, nil otherwise."
-  (let ((tempvar (make-symbol "x")))
-    `(let ((,tempvar nil)
-           (f (let ((,tempvar t)) (lambda () ,tempvar))))
-       (funcall f))))
-
-
-;; wrap CMPFUN for use in a subtree
-(if (trie-lexical-binding-p)
-    (defun trie--wrap-cmpfun (cmpfun)
-      (lambda (a b)
-	(setq a (trie--node-split a)
-	      b (trie--node-split b))
-	(cond ((eq a trie--terminator)
-	       (if (eq b trie--terminator) nil t))
-	      ((eq b trie--terminator) nil)
-	      (t (funcall cmpfun a b)))))
-  (defun trie--wrap-cmpfun (cmpfun)
-    `(lambda (a b)
-       (setq a (trie--node-split a)
-	     b (trie--node-split b))
-       (cond ((eq a trie--terminator)
-	      (if (eq b trie--terminator) nil t))
-	     ((eq b trie--terminator) nil)
-	     (t (,cmpfun a b))))))
-
-
-;; create equality function from trie comparison function
-(if (trie-lexical-binding-p)
-    (defun trie--construct-equality-function (comparison-function)
-      (lambda (a b)
-	 (not (or (funcall comparison-function a b)
-		  (funcall comparison-function b a)))))
-  (defun trie--construct-equality-function (comparison-function)
-    `(lambda (a b)
-       (not (or (,comparison-function a b)
-		(,comparison-function b a))))))
-
-
-;; create Lewenstein rank function from trie comparison function
-(if (trie-lexical-binding-p)
-    (defun trie--construct-Lewenstein-rankfun (comparison-function)
-      (let ((compfun (trie-construct-sortfun comparison-function)))
-	(lambda (a b)
-	  (cond
-	   ((< (nth 1 (car a)) (nth 1 (car b))) t)
-	   ((> (nth 1 (car a)) (nth 1 (car b))) nil)
-	   (t (funcall compfun (nth 0 (car a)) (nth 0 (car b))))))))
-  (defun trie--construct-Lewenstein-rankfun (comparison-function)
-    `(lambda (a b)
-       (cond
-	((< (nth 1 (car a)) (nth 1 (car b))) t)
-	((> (nth 1 (car a)) (nth 1 (car b))) nil)
-	(t ,(trie-construct-sortfun comparison-function)
-	   (nth 0 (car a)) (nth 0 (car b)))))))
 
 
 
@@ -626,7 +630,7 @@ functions must *never* bind any variables with names commencing
 	   (trie--node-subtree (trie--root trie))))
 
 
-(if (trie-lexical-binding-p)
+(trie--if-lexical-binding
     (defun trie-construct-sortfun (cmpfun &optional reverse)
       "Construct function to compare key sequences, based on a CMPFUN
 that compares individual elements of the sequence. Order is
