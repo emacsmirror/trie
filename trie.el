@@ -3,7 +3,7 @@
 ;; Copyright (C) 2008-2015, 2017  Free Software Foundation, Inc
 
 ;; Author: Toby Cubitt <toby-predictive@dr-qubit.org>
-;; Version: 0.3
+;; Version: 0.4
 ;; Keywords: extensions, matching, data structures
 ;;           trie, ternary search tree, tree, completion, regexp
 ;; Package-Requires: ((tNFA "0.1.1") (heap "0.3"))
