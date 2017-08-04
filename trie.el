@@ -1,6 +1,6 @@
 ;;; trie.el --- Trie data structure  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2008-2015, 2017  Free Software Foundation, Inc
+;; Copyright (C) 2008-2010, 2012, 2014, 2017  Free Software Foundation, Inc
 
 ;; Author: Toby Cubitt <toby-predictive@dr-qubit.org>
 ;; Version: 0.4
@@ -745,6 +745,51 @@ bind any variables with names commencing \"--\"."
 ;; ----------------------------------------------------------------
 ;;                        Deleting data
 
+;; The absurd argument names are to lessen the likelihood of dynamical scoping
+;; bugs caused by a supplied function binding a variable with the same name as
+;; one of the arguments, which would cause a nasty bug when the lambda's
+;; (below) are called.
+'; FIXME: not needed with lexical binding
+(defun trie--do-delete (node --trie--do-delete--seq
+			     --trie--do-delete--test
+			     --trie--do-delete--deletefun
+			     --trie--do-delete--emptyfun
+			     --trie--do-delete--cmpfun
+			     --trie--do-delete--key)
+  ;; Delete --TRIE--DO-DELETE--SEQ starting from trie node NODE, and
+  ;; return non-nil if we deleted a node. If --TRIE--DO-DELETE--TEST is
+  ;; supplied, it is called with two arguments, the key being deleted
+  ;; and the associated data, and the deletion is only carried out if it
+  ;; returns non-nil.
+
+  ;; if --TRIE--DO-DELETE--SEQ is empty, try to delete data node and
+  ;; return non-nil if we did (return value of a trie's deletefun is the
+  ;; deleted data, which is always non-nil for a trie)
+  (if (= (length --trie--do-delete--seq) 0)
+      (funcall --trie--do-delete--deletefun
+	       (trie--node-subtree node)
+	       (trie--node-create-dummy trie--terminator)
+	       (when --trie--do-delete--test
+		 (lambda (n)
+		   (funcall --trie--do-delete--test
+			    --trie-delete--key (trie--node-data n)))))
+    ;; otherwise, delete on down (return value of trie's deletion function is
+    ;; the deleted data, which is always non-nil for a trie)
+    (funcall --trie--do-delete--deletefun
+	     (trie--node-subtree node)
+	     (trie--node-create-dummy (elt --trie--do-delete--seq 0))
+	     (lambda (n)
+	       (and (trie--do-delete
+		     n (trie--subseq --trie--do-delete--seq 1)
+		     --trie--do-delete--test
+		     --trie--do-delete--deletefun
+		     --trie--do-delete--emptyfun
+		     --trie--do-delete--cmpfun
+		     --trie--do-delete--key)
+		    (funcall --trie--do-delete--emptyfun
+			     (trie--node-subtree n)))))))
+
+
 (defun trie-delete (trie key &optional test)
   "Delete KEY and its associated data from TRIE.
 
@@ -761,65 +806,13 @@ any variables with names commencing \"--\"."
   ;; convert trie from print-form if necessary
   (trie-transform-from-read-warn trie)
   ;; set up deletion (real work is done by `trie--do-delete'
-  (let (--trie-deleted--node
-	(--trie-delete--key key))
-    (declare (special --trie-deleted--node)
-	     (special --trie-delete--key))
-    (trie--do-delete (trie--root trie) key test
-		     (trie--deletefun trie)
-		     (trie--emptyfun trie)
-		     (trie--cmpfun trie))
-    (when --trie-deleted--node
-      (cons key (trie--node-data --trie-deleted--node)))))
-
-
-(defun trie--do-delete (node --trie--do-delete--seq
-			     --trie--do-delete--test
-			     --trie--do-delete--deletefun
-			     --trie--do-delete--emptyfun
-			     --trie--do-delete--cmpfun)
-  ;; Delete --TRIE--DO-DELETE--SEQ starting from trie node NODE, and
-  ;; return non-nil if we deleted a node. If --TRIE--DO-DELETE--TEST is
-  ;; supplied, it is called with two arguments, the key being deleted
-  ;; and the associated data, and the deletion is only carried out if it
-  ;; returns non-nil.
-
-  ;; The absurd argument names are to lessen the likelihood of dynamical
-  ;; scoping bugs caused by a supplied function binding a variable with
-  ;; the same name as one of the arguments, which would cause a nasty
-  ;; bug when the lambda's (below) are called.
-  (declare (special --trie-deleted--node)
-	   (special --trie-delete--key))
-  ;; if --TRIE--DO-DELETE--SEQ is empty, try to delete data node and
-  ;; return non-nil if we did (return value of
-  ;; --TRIE--DO-DELETE--DELETEFUN is the deleted data, which is always
-  ;; non-nil for a trie)
-  (if (= (length --trie--do-delete--seq) 0)
-      (setq --trie-deleted--node
-	    (funcall --trie--do-delete--deletefun
-		     (trie--node-subtree node)
-		     (trie--node-create-dummy trie--terminator)
-		     (when --trie--do-delete--test
-		       (lambda (n)
-			 (funcall --trie--do-delete--test
-				  --trie-delete--key (trie--node-data n))))
-		     nil))
-    ;; otherwise, delete on down (return value of
-    ;; --TRIE--DO-DELETE--DELETEFUN is the deleted data, which is always
-    ;; non-nil for a trie)
-    (funcall --trie--do-delete--deletefun
-	     (trie--node-subtree node)
-	     (trie--node-create-dummy (elt --trie--do-delete--seq 0))
-	     (lambda (n)
-	       (and (trie--do-delete
-		     n (trie--subseq --trie--do-delete--seq 1)
-		     --trie--do-delete--test
-		     --trie--do-delete--deletefun
-		     --trie--do-delete--emptyfun
-		     --trie--do-delete--cmpfun)
-		    (funcall --trie--do-delete--emptyfun
-			     (trie--node-subtree n))))
-	     nil)))
+  (let ((deleted-node
+	 (trie--do-delete (trie--root trie) key test
+			  (trie--deletefun trie)
+			  (trie--emptyfun trie)
+			  (trie--cmpfun trie)
+			  key)))
+    (when deleted-node (cons key (trie--node-data deleted-node)))))
 
 
 
@@ -1329,105 +1322,106 @@ results\)."
 ;; would be highly non-trivial. (I haven't done any benchmarking, though, so
 ;; feel free to do so and let me know the results!)
 
-(defun trie--construct-accumulator (maxnum filter resultfun)
+(defmacro trie--construct-accumulator (maxnum filter resultfun)
   ;; Does what it says on the tin! | sed -e 's/tin/macro name/'
-  (declare (special trie--accumulate))
-  (cond
-   ;; filter, maxnum, resultfun
-   ((and filter maxnum resultfun)
-    (lambda (seq data)
-      (when (funcall filter seq data)
-	(aset trie--accumulate 0
-	      (cons (funcall resultfun seq data)
-		    (aref trie--accumulate 0)))
-	(and (>= (length (aref trie--accumulate 0)) maxnum)
-	     (throw 'trie--accumulate-done nil)))))
-   ;; filter, maxnum, !resultfun
-   ((and filter maxnum (not resultfun))
-    (lambda (seq data)
-      (when (funcall filter seq data)
-	(aset trie--accumulate 0
-	      (cons (cons seq data)
-		    (aref trie--accumulate 0)))
-	(and (>= (length (aref trie--accumulate 0)) maxnum)
-	     (throw 'trie--accumulate-done nil)))))
-   ;; filter, !maxnum, resultfun
-   ((and filter (not maxnum) resultfun)
-    (lambda (seq data)
-      (when (funcall filter seq data)
-	(aset trie--accumulate 0
-	      (cons (funcall resultfun seq data)
-		    (aref trie--accumulate 0))))))
-   ;; filter, !maxnum, !resultfun
-   ((and filter (not maxnum) (not resultfun))
-    (lambda (seq data)
-      (when (funcall filter seq data)
-	(aset trie--accumulate 0
-	      (cons (cons seq data)
-		    (aref trie--accumulate 0))))))
-   ;; !filter, maxnum, resultfun
-   ((and (not filter) maxnum resultfun)
-    (lambda (seq data)
-      (aset trie--accumulate 0
-	    (cons (funcall resultfun seq data)
-		  (aref trie--accumulate 0)))
-      (and (>= (length (aref trie--accumulate 0)) maxnum)
-	   (throw 'trie--accumulate-done nil))))
-   ;; !filter, maxnum, !resultfun
-   ((and (not filter) maxnum (not resultfun))
-    (lambda (seq data)
-      (aset trie--accumulate 0
-	    (cons (cons seq data)
-		  (aref trie--accumulate 0)))
-      (and (>= (length (aref trie--accumulate 0)) maxnum)
-	   (throw 'trie--accumulate-done nil))))
-   ;; !filter, !maxnum, resultfun
-   ((and (not filter) (not maxnum) resultfun)
-    (lambda (seq data)
-      (aset trie--accumulate 0
-	    (cons (funcall resultfun seq data)
-		  (aref trie--accumulate 0)))))
-   ;; !filter, !maxnum, !resultfun
-   ((and (not filter) (not maxnum) (not resultfun))
-    (lambda (seq data)
-      (aset trie--accumulate 0
-	    (cons (cons seq data)
-		  (aref trie--accumulate 0)))))
-   ))
+  (declare (debug t))
+  `(cond
+    ;; filter, maxnum, resultfun
+    ((and ,filter ,maxnum ,resultfun)
+     (lambda (seq data)
+       (when (funcall ,filter seq data)
+	 (aset trie--accumulate 0
+	       (cons (funcall ,resultfun seq data)
+		     (aref trie--accumulate 0)))
+	 (and (>= (length (aref trie--accumulate 0)) ,maxnum)
+	      (throw 'trie--accumulate-done nil)))))
+    ;; filter, maxnum, !resultfun
+    ((and ,filter ,maxnum (not ,resultfun))
+     (lambda (seq data)
+       (when (funcall ,filter seq data)
+	 (aset trie--accumulate 0
+	       (cons (cons seq data)
+		     (aref trie--accumulate 0)))
+	 (and (>= (length (aref trie--accumulate 0)) ,maxnum)
+	      (throw 'trie--accumulate-done nil)))))
+    ;; filter, !maxnum, resultfun
+    ((and ,filter (not ,maxnum) ,resultfun)
+     (lambda (seq data)
+       (when (funcall ,filter seq data)
+	 (aset trie--accumulate 0
+	       (cons (funcall ,resultfun seq data)
+		     (aref trie--accumulate 0))))))
+    ;; filter, !maxnum, !resultfun
+    ((and ,filter (not ,maxnum) (not ,resultfun))
+     (lambda (seq data)
+       (when (funcall ,filter seq data)
+	 (aset trie--accumulate 0
+	       (cons (cons seq data)
+		     (aref trie--accumulate 0))))))
+    ;; !filter, maxnum, resultfun
+    ((and (not ,filter) ,maxnum ,resultfun)
+     (lambda (seq data)
+       (aset trie--accumulate 0
+	     (cons (funcall ,resultfun seq data)
+		   (aref trie--accumulate 0)))
+       (and (>= (length (aref trie--accumulate 0)) ,maxnum)
+	    (throw 'trie--accumulate-done nil))))
+    ;; !filter, maxnum, !resultfun
+    ((and (not ,filter) ,maxnum (not ,resultfun))
+     (lambda (seq data)
+       (aset trie--accumulate 0
+	     (cons (cons seq data)
+		   (aref trie--accumulate 0)))
+       (and (>= (length (aref trie--accumulate 0)) ,maxnum)
+	    (throw 'trie--accumulate-done nil))))
+    ;; !filter, !maxnum, resultfun
+    ((and (not ,filter) (not ,maxnum) ,resultfun)
+     (lambda (seq data)
+       (aset trie--accumulate 0
+	     (cons (funcall ,resultfun seq data)
+		   (aref trie--accumulate 0)))))
+    ;; !filter, !maxnum, !resultfun
+    ((and (not ,filter) (not ,maxnum) (not ,resultfun))
+     (lambda (seq data)
+       (aset trie--accumulate 0
+	     (cons (cons seq data)
+		   (aref trie--accumulate 0)))))
+    ))
 
 
 
-(defun trie--construct-ranked-accumulator (maxnum filter)
+(defmacro trie--construct-ranked-accumulator (maxnum filter)
   ;; Does what it says on the tin! | sed -e 's/tin/macro name/'
-  (declare (special trie--accumulate))
-  (cond
-   ;; filter, maxnum
-   ((and filter maxnum)
-    (lambda (seq data)
-      (when (funcall filter seq data)
-	(heap-add trie--accumulate (cons seq data))
-	(and (> (heap-size trie--accumulate) maxnum)
-	     (heap-delete-root trie--accumulate)))))
-   ;; filter, !maxnum
-   ((and filter (not maxnum))
-    (lambda (seq data)
-      (when (funcall filter seq data)
-	(heap-add trie--accumulate (cons seq data)))))
-   ;; !filter, maxnum
-   ((and (not filter) maxnum)
-    (lambda (seq data)
-      (heap-add trie--accumulate (cons seq data))
-      (and (> (heap-size trie--accumulate) maxnum)
-	   (heap-delete-root trie--accumulate))))
-   ;; !filter, !maxnum
-   ((and (not filter) (not maxnum))
-    (lambda (seq data)
-      (heap-add trie--accumulate (cons seq data))))))
+  (declare (debug t))
+  `(cond
+    ;; filter, maxnum
+    ((and ,filter ,maxnum)
+     (lambda (seq data)
+       (when (funcall ,filter seq data)
+	 (heap-add trie--accumulate (cons seq data))
+	 (and (> (heap-size trie--accumulate) ,maxnum)
+	      (heap-delete-root trie--accumulate)))))
+    ;; filter, !maxnum
+    ((and ,filter (not ,maxnum))
+     (lambda (seq data)
+       (when (funcall ,filter seq data)
+	 (heap-add trie--accumulate (cons seq data)))))
+    ;; !filter, maxnum
+    ((and (not ,filter) ,maxnum)
+     (lambda (seq data)
+       (heap-add trie--accumulate (cons seq data))
+       (and (> (heap-size trie--accumulate) ,maxnum)
+	    (heap-delete-root trie--accumulate))))
+    ;; !filter, !maxnum
+    ((and (not ,filter) (not ,maxnum))
+     (lambda (seq data)
+       (heap-add trie--accumulate (cons seq data))))))
 
 
 
 (defmacro trie--accumulate-results
   (rankfun maxnum reverse filter resultfun accfun duplicates &rest body)
+  (declare (debug t))
   ;; Accumulate results of running BODY code, and return them in appropriate
   ;; order. BODY should call ACCFUN to accumulate a result, passing it two
   ;; arguments: a trie key and its associated data. BODY can throw
