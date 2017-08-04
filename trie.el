@@ -37,8 +37,7 @@
 ;; can also be performed efficiently: for example, returning all strings with
 ;; a given prefix, searching for keys matching a given wildcard pattern or
 ;; regular expression, or searching for all keys that match any of the above
-;; to within a given Lewenstein distance (though this last is not yet
-;; implemented in this package - code contributions welcome!).
+;; to within a given Lewenstein distance.
 ;;
 ;; You create a trie using `make-trie', create an association using
 ;; `trie-insert', retrieve an association using `trie-lookup', and map over a
@@ -48,7 +47,7 @@
 ;; matches within a given Lewenstein distance (edit distance) of a string
 ;; using `trie-fuzzy-match', and find completions of prefixes within a given
 ;; distance using `trie-fuzzy-complete'.
-
+;;
 ;; Using `trie-stack', you can create an object that allows the contents of
 ;; the trie to be used like a stack, useful for building other algorithms on
 ;; top of tries; `trie-stack-pop' pops elements off the stack one-by-one, in
@@ -56,6 +55,11 @@
 ;; stack. Similarly, `trie-complete-stack', `trie-regexp-stack',
 ;; `trie-fuzzy-match-stack' and `trie-fuzzy-complete-stack' create
 ;; "lexicographicly-ordered" stacks of query results.
+;;
+;; Very similar to trie-stacks, `trie-iter', `trie-complete-iter',
+;; `trie-regexp-iter', `trie-fuzzy-match-iter' and `trie-fuzzy-complete-iter'
+;; generate iterator objects, which can be used to retrieve successive
+;; elements by calling `iter-next' on them.
 ;;
 ;; Note that there are two uses for a trie: as a lookup table, in which case
 ;; only the presence or absence of a key in the trie is significant, or as an
@@ -993,7 +997,7 @@ trie, and its associated data.
 
 Optional argument TYPE (one of the symbols vector, lisp or
 string; defaults to vector) sets the type of sequence passed to
-FUNCTION. If TYPE is string, it must be possible to apply the
+FUNCTION. If TYPE is `string', it must be possible to apply the
 function `string' to the individual elements of key sequences
 stored in TRIE.
 
@@ -1040,12 +1044,9 @@ Note that if you don't care about the order in which FUNCTION is
 applied, just that the resulting list is in the correct order,
 then
 
-  (trie-mapf function #'cons trie type (not reverse))
+  (trie-mapf function \\='cons trie type (not reverse))
 
-is more efficient.
-
-Note: to avoid nasty dynamic scoping bugs, FUNCTION must *not*
-bind any variables with names commencing \"--\"."
+is more efficient."
   ;; convert from print-form if necessary
   (trie-transform-from-read-warn trie)
   ;; map FUNCTION over TRIE and accumulate in a list
