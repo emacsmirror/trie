@@ -2739,6 +2739,8 @@ results\)."
   (require 'edebug)
   (require 'advice))
 
+(defun trie--prin1 (_trie stream)
+  (princ "#<trie>" stream))
 
 (defun trie--edebug-pretty-print (object)
   (cond
@@ -2763,30 +2765,31 @@ results\)."
 ;; 	      "]")))
    ))
 
+(if (fboundp 'cl-print-object)
+    (cl-defmethod cl-print-object ((object trie-) stream)
+      (trie--prin1 object stream))
 
-(when (fboundp 'ad-define-subr-args)
-  (ad-define-subr-args 'edebug-prin1 '(object &optional printcharfun)))
+  (when (fboundp 'ad-define-subr-args)
+    (ad-define-subr-args 'edebug-prin1 '(object &optional printcharfun)))
 
-(defadvice edebug-prin1
-  (around trie activate compile preactivate)
-  (let ((pretty (trie--edebug-pretty-print object)))
-    (if pretty
-	(progn
-	  (prin1 pretty printcharfun)
-	  (setq ad-return-value pretty))
-    ad-do-it)))
+  (defadvice edebug-prin1
+      (around trie activate compile preactivate)
+    (let ((pretty (trie--edebug-pretty-print object)))
+      (if pretty
+	  (progn
+	    (prin1 pretty printcharfun)
+	    (setq ad-return-value pretty))
+        ad-do-it)))
 
+  (when (fboundp 'ad-define-subr-args)
+    (ad-define-subr-args 'edebug-prin1-to-string '(object &optional noescape)))
 
-(when (fboundp 'ad-define-subr-args)
-  (ad-define-subr-args 'edebug-prin1-to-string '(object &optional noescape)))
-
-(defadvice edebug-prin1-to-string
-  (around trie activate compile preactivate)
-  (let ((pretty (trie--edebug-pretty-print object)))
-    (if pretty
-	(setq ad-return-value pretty)
-      ad-do-it)))
-
+  (defadvice edebug-prin1-to-string
+      (around trie activate compile preactivate)
+    (let ((pretty (trie--edebug-pretty-print object)))
+      (if pretty
+	  (setq ad-return-value pretty)
+        ad-do-it))))
 
 
 (provide 'trie)
