@@ -2209,7 +2209,7 @@ of the default key-dist-data list."
 	       row string (trie--node-split node) equalfun)
 	  seq (trie--seq-append seq (trie--node-split node)))
 
-    ;; as long as some row entry is < DISTANCE, recursively search below NODE
+    ;; as long as some row entry is <= DISTANCE, recursively search below NODE
     (when (<= (apply #'min (append row nil)) distance)
       (funcall mapfun
 	       (lambda (n)
@@ -2311,7 +2311,7 @@ STRING."
 			   row string (trie--node-split node) equalfun))
 	    ;; push children of non-data nodes whose SEQ is less than DISTANCE
 	    ;; onto stack
-	    (when (< (apply #'min (append row nil)) distance)
+	    (when (<= (apply #'min (append row nil)) distance)
 	      (push
 	       (list (trie--seq-append seq (trie--node-split node))
 		     (funcall stack-createfun
@@ -2493,7 +2493,7 @@ of the default key-dist-data list."
 	    pfxlen (length seq)))
 
     ;; as long as some row entry is < DISTANCE, recursively search below NODE
-    (if (< (apply #'min (append row nil)) distance)
+    (if (<= (apply #'min (append row nil)) distance)
 	(funcall mapfun
 		 (lambda (n)
 		   (trie--do-fuzzy-complete
@@ -2634,9 +2634,9 @@ give meaningful results; use `trie-complete-stack' instead.)"
 		     prefix t row pfxcost pfxlen)
 	       store))
 
-	     ;; if some row entry for non-data node is < DISTANCE, push node
+	     ;; if some row entry for non-data node is <= DISTANCE, push node
 	     ;; onto stack
-	     ((< (apply #'min (append row nil)) distance)
+	     ((<= (apply #'min (append row nil)) distance)
 	      (push
 	       (list seq
 		     (funcall stack-createfun
