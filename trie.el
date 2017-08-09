@@ -749,7 +749,7 @@ bind any variables with names commencing \"--\"."
 ;; bugs caused by a supplied function binding a variable with the same name as
 ;; one of the arguments, which would cause a nasty bug when the lambda's
 ;; (below) are called.
-'; FIXME: not needed with lexical binding
+;; FIXME: not needed with lexical binding
 (defun trie--do-delete (node --trie--do-delete--seq
 			     --trie--do-delete--test
 			     --trie--do-delete--deletefun
@@ -772,22 +772,25 @@ bind any variables with names commencing \"--\"."
 	       (when --trie--do-delete--test
 		 (lambda (n)
 		   (funcall --trie--do-delete--test
-			    --trie-delete--key (trie--node-data n)))))
+			    --trie--do-delete--key (trie--node-data n)))))
     ;; otherwise, delete on down (return value of trie's deletion function is
     ;; the deleted data, which is always non-nil for a trie)
-    (funcall --trie--do-delete--deletefun
-	     (trie--node-subtree node)
-	     (trie--node-create-dummy (elt --trie--do-delete--seq 0))
-	     (lambda (n)
-	       (and (trie--do-delete
-		     n (trie--subseq --trie--do-delete--seq 1)
-		     --trie--do-delete--test
-		     --trie--do-delete--deletefun
-		     --trie--do-delete--emptyfun
-		     --trie--do-delete--cmpfun
-		     --trie--do-delete--key)
-		    (funcall --trie--do-delete--emptyfun
-			     (trie--node-subtree n)))))))
+    (let (--trie-deleted--node)
+      (funcall --trie--do-delete--deletefun
+	       (trie--node-subtree node)
+	       (trie--node-create-dummy (elt --trie--do-delete--seq 0))
+	       (lambda (n)
+		 (and (setq --trie-deleted--node
+			    (trie--do-delete
+			     n (trie--subseq --trie--do-delete--seq 1)
+			     --trie--do-delete--test
+			     --trie--do-delete--deletefun
+			     --trie--do-delete--emptyfun
+			     --trie--do-delete--cmpfun
+			     --trie--do-delete--key))
+		      (funcall --trie--do-delete--emptyfun
+			       (trie--node-subtree n)))))
+      --trie-deleted--node)))
 
 
 (defun trie-delete (trie key &optional test)
