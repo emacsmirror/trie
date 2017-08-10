@@ -181,6 +181,10 @@
 ;;; ================================================================
 ;;;           Internal utility functions and macros
 
+;; symbol used to denote a trie leaf node
+(defconst trie--terminator '--trie--terminator)
+
+
 (defmacro trie--if-lexical-binding (then else)
   "If lexical binding is in effect, evaluate THEN, otherwise ELSE."
   (declare (indent 1) (debug t))
@@ -245,9 +249,6 @@
 
 ;;; ----------------------------------------------------------------
 ;;;           Functions and macros for handling a trie.
-
-;; symbol used to denote a trie leaf node
-(defconst trie--terminator '--trie--terminator)
 
 (defstruct
   (trie-
@@ -747,8 +748,7 @@ bind any variables with names commencing \"--\"."
 
 ;; The absurd argument names are to lessen the likelihood of dynamical scoping
 ;; bugs caused by a supplied function binding a variable with the same name as
-;; one of the arguments, which would cause a nasty bug when the lambda's
-;; (below) are called.
+;; one of the arguments, which would cause a nasty bug when they're called.
 ;; FIXME: not needed with lexical binding
 (defun trie--do-delete (node --trie--do-delete--seq
 			     --trie--do-delete--test
