@@ -162,18 +162,17 @@
 
 
 ;; --- avl-tree ---
-(put 'avl :trie-createfun
-     (lambda (cmpfun _seq) (avl-tree-create cmpfun)))
-(put 'avl :trie-insertfun 'avl-tree-enter)
-(put 'avl :trie-deletefun 'avl-tree-delete)
-(put 'avl :trie-lookupfun 'avl-tree-member)
-(put 'avl :trie-mapfun 'avl-tree-mapc)
-(put 'avl :trie-emptyfun 'avl-tree-empty)
-(put 'avl :trie-stack-createfun 'avl-tree-stack)
-(put 'avl :trie-stack-popfun 'avl-tree-stack-pop)
-(put 'avl :trie-stack-emptyfun 'avl-tree-stack-empty-p)
-(put 'avl :trie-transform-for-print 'trie--avl-transform-for-print)
-(put 'avl :trie-transform-from-read 'trie--avl-transform-from-read)
+(put 'avl :trie-createfun (lambda (cmpfun _seq) (avl-tree-create cmpfun)))
+(put 'avl :trie-insertfun #'avl-tree-enter)
+(put 'avl :trie-deletefun #'avl-tree-delete)
+(put 'avl :trie-lookupfun #'avl-tree-member)
+(put 'avl :trie-mapfun #'avl-tree-mapc)
+(put 'avl :trie-emptyfun #'avl-tree-empty)
+(put 'avl :trie-stack-createfun #'avl-tree-stack)
+(put 'avl :trie-stack-popfun #'avl-tree-stack-pop)
+(put 'avl :trie-stack-emptyfun #'avl-tree-stack-empty-p)
+(put 'avl :trie-transform-for-print #'trie--avl-transform-for-print)
+(put 'avl :trie-transform-from-read #'trie--avl-transform-from-read)
 
 
 
@@ -277,7 +276,7 @@
    (:constructor trie--create-custom
 		 (comparison-function
 		  &key
-		  (createfun #'avl-tree-create-bare)
+		  (createfun #'(lambda (cmpfun _seq) (avl-tree-create cmpfun)))
 		  (insertfun #'avl-tree-enter)
 		  (deletefun #'avl-tree-delete)
 		  (lookupfun #'avl-tree-member)
@@ -339,12 +338,12 @@
   ;; define this ourselves, because we created a defstruct without any
   ;; identifying tags (i.e. (:type vector)) for efficiency, but this
   ;; means we can only perform a rudimentary and very unreliable test.
+  ;; Good enough for internal usage.
   (and (vectorp node) (= (length node) 2)))
 
 
 (defun trie--node-find (node seq lookupfun)
-  ;; Returns the node below NODE corresponding to SEQ, or nil if none
-  ;; found.
+  ;; Returns the node below NODE corresponding to SEQ, or nil if none found.
   (let ((i -1))
     ;; descend trie until we find SEQ or run out of trie
     (while (and node (< (incf i) (length seq)))
@@ -424,45 +423,46 @@
 ;;; ----------------------------------------------------------------
 ;;;                Replacements for CL functions
 
-;; copied from cl-extra.el
-(defun trie--subseq (seq start &optional end)
-  "Return the subsequence of SEQ from START to END.
+(unless (require 'cl-lib nil t)
+  ;; copied from cl-extra.el
+  (defun cl-subseq (seq start &optional end)
+    "Return the subsequence of SEQ from START to END.
 If END is omitted, it defaults to the length of the sequence.
 If START or END is negative, it counts from the end."
-  (if (stringp seq) (substring seq start end)
-    (let (len)
-      (and end (< end 0) (setq end (+ end (setq len (length seq)))))
-      (when (< start 0)
-	(setq start (+ start (or len (setq len (length seq))))))
-      (cond ((listp seq)
-	     (if (> start 0) (setq seq (nthcdr start seq)))
-	     (if end
-		 (let ((res nil))
-		   (while (>= (setq end (1- end)) start)
-		     (push (pop seq) res))
-		   (nreverse res))
-	       (copy-sequence seq)))
-	    (t
-	     (or end (setq end (or len (length seq))))
-	     (let ((res (make-vector (max (- end start) 0) nil))
-		   (i 0))
-	       (while (< start end)
-		 (aset res i (aref seq start))
-		 (setq i (1+ i) start (1+ start)))
-	       res))))))
+    (if (stringp seq) (substring seq start end)
+      (let (len)
+	(and end (< end 0) (setq end (+ end (setq len (length seq)))))
+	(when (< start 0)
+	  (setq start (+ start (or len (setq len (length seq))))))
+	(cond ((listp seq)
+	       (if (> start 0) (setq seq (nthcdr start seq)))
+	       (if end
+		   (let ((res nil))
+		     (while (>= (setq end (1- end)) start)
+		       (push (pop seq) res))
+		     (nreverse res))
+		 (copy-sequence seq)))
+	      (t
+	       (or end (setq end (or len (length seq))))
+	       (let ((res (make-vector (max (- end start) 0) nil))
+		     (i 0))
+		 (while (< start end)
+		   (aset res i (aref seq start))
+		   (setq i (1+ i) start (1+ start)))
+		 res))))))
 
-
-(defun trie--position (item list)
-  "Find the first occurrence of ITEM in LIST.
+  (defun cl-position (item list)
+    "Find the first occurrence of ITEM in LIST.
 Return the index of the matching item, or nil of not found.
 Comparison is done with `equal'."
-  (let ((i 0))
-    (catch 'found
-      (while (progn
-	       (when (equal item (car list)) (throw 'found i))
-	       (setq i (1+ i))
-	       (setq list (cdr list))))
-      nil)))
+    (let ((i 0))
+      (catch 'found
+	(while (progn
+		 (when (equal item (car list)) (throw 'found i))
+		 (setq i (1+ i))
+		 (setq list (cdr list))))
+	nil)))
+)
 
 
 (defsubst trie--seq-append (seq el)
@@ -782,7 +782,7 @@ bind any variables with names commencing \"--\"."
 	       (lambda (n)
 		 (and (setq --trie-deleted--node
 			    (trie--do-delete
-			     n (trie--subseq --trie--do-delete--seq 1)
+			     n (cl-subseq --trie--do-delete--seq 1)
 			     --trie--do-delete--test
 			     --trie--do-delete--deletefun
 			     --trie--do-delete--emptyfun
@@ -804,8 +804,9 @@ If TEST is supplied, it should be a function that accepts two
 arguments: the key being deleted, and its associated data. The
 key will then only be deleted if TEST returns non-nil.
 
-Note: to avoid nasty dynamic scoping bugs, TEST must *not* bind
-any variables with names commencing \"--\"."
+Note: In Emacsen that do not support lexical binding, TEST must
+*not* bind any variables with names commencing \"--\", or it may
+trigger nasty dynamic scoping bugs."
   ;; convert trie from print-form if necessary
   (trie-transform-from-read-warn trie)
   ;; set up deletion (real work is done by `trie--do-delete'
