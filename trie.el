@@ -226,16 +226,33 @@
 		(,comparison-function b a))))))
 
 
-;; create Lewenstein rank function from trie comparison function
+;; create Lewenstein rank functions from trie comparison function
 (trie--if-lexical-binding
-    (defun trie--construct-Lewenstein-rankfun (comparison-function)
+    (defun trie--construct-fuzzy-match-rankfun (comparison-function)
+      (let ((compfun (trie-construct-sortfun comparison-function)))
+	(lambda (a b)
+	  (cond
+	   ((< (cdar a) (cdar b)) t)
+	   ((> (cdar a) (cdar b)) nil)
+	   (t (funcall compfun (nth 0 (car a)) (nth 0 (car b))))))))
+  (defun trie--construct-fuzzy-match-rankfun (comparison-function)
+    `(lambda (a b)
+       (cond
+	((< (cdar a) (cdar b)) t)
+	((> (cdar a) (cdar b)) nil)
+	(t ,(trie-construct-sortfun comparison-function)
+	   (nth 0 (car a)) (nth 0 (car b)))))))
+
+
+(trie--if-lexical-binding
+    (defun trie--construct-fuzzy-complete-rankfun (comparison-function)
       (let ((compfun (trie-construct-sortfun comparison-function)))
 	(lambda (a b)
 	  (cond
 	   ((< (nth 1 (car a)) (nth 1 (car b))) t)
 	   ((> (nth 1 (car a)) (nth 1 (car b))) nil)
 	   (t (funcall compfun (nth 0 (car a)) (nth 0 (car b))))))))
-  (defun trie--construct-Lewenstein-rankfun (comparison-function)
+  (defun trie--construct-fuzzy-complete-rankfun (comparison-function)
     `(lambda (a b)
        (cond
 	((< (nth 1 (car a)) (nth 1 (car b))) t)
@@ -2075,17 +2092,55 @@ to `equal'."
 (defun Lewenstein--next-row (row string chr equalfun)
   ;; Compute next row of Lewenstein distance matrix.
   (let ((next-row (make-vector (length row) nil))
-	(i 0) inscost delcost subcost)
+	(i 0))
     (aset next-row 0 (1+ (aref row 0)))
     (while (< (incf i) (length row))
-      (setq inscost (1+ (aref next-row (1- i)))
-	    delcost (1+ (aref row i))
-	    subcost (if (funcall equalfun chr (elt string (1- i)))
-			(aref row (1- i))
-		      (1+ (aref row (1- i)))))
-      (aset next-row i (min inscost delcost subcost)))
+      (aset next-row i
+	    (min
+	     (1+ (aref next-row (1- i)))                     ; insertion
+	     (1+ (aref row i))	                             ; deletion
+	     (if (funcall equalfun chr (elt string (1- i)))  ; substitution
+		 (aref row (1- i))
+	       (1+ (aref row (1- i))))
+	     )))
     next-row))
 
+
+(defun Lewenstein--initial-reduced-row (dist)
+  (let ((row (make-vector (* 2 (1+ dist)) nil)))
+    (aset row 0 0)
+    (dotimes (i (1+ dist)) (aset row (+ dist i 1) i))
+    row))
+
+
+(defun Lewenstein--next-reduced-row (row string chr equalfun)
+  ;; Compute next row of reduced Lewenstein distance matrix.
+  (let ((next-row (make-vector (length row) nil))
+	(i 0) offset)
+    (aset next-row 0 (1+ (aref row 0)))
+    (setq offset (- (aref next-row 0) (1- (/ (length row) 2)) 2))
+    (while (< (incf i) (length row))
+      ;; insertion
+      (when (and (< 1 i (length row)) (aref next-row (1- i)))
+	(aset next-row i (1+ (aref next-row (1- i)))))
+      ;; deletion
+      (when (and (< i (1- (length row))) (aref row (1+ i)))
+	(aset next-row i
+	      (if (aref next-row i)
+		  (min (aref next-row i) (1+ (aref row (1+ i))))
+		(1+ (aref row (1+ i))))))
+      ;; substitution
+      (when (and (<= 0 (+ offset i) (1- (length string))) (aref row i))
+	(aset next-row i
+	      (if (aref next-row i)
+		  (min (aref next-row i)
+		       	(if (funcall equalfun chr (elt string (+ offset i)))
+			    (aref row i)
+			  (1+ (aref row i))))
+		(if (funcall equalfun chr (elt string (+ offset i)))
+		    (aref row i)
+		  (1+ (aref row i)))))))
+    next-row))
 
 
 ;; Implementation Note
@@ -2094,10 +2149,10 @@ to `equal'."
 ;; distance constructs a table of Lewenstein distances to successive prefixes
 ;; of the target string, row-by-row. Our trie search algorithms are based on
 ;; constructing the next row of this table as we (recursively) descend the
-;; trie. Since the each row only depends on entries in the previous row, we
-;; only need to pass a single row of the table down the recursion stack. (A
-;; nice description of this algorithm can be found at
-;; http://stevehanov.ca/blog/index.php?id=114.)
+;; trie. Since each row only depends on entries in the previous row, we only
+;; need to pass a single row of the table down the recursion stack. (A nice
+;; description of this algorithm can be found at
+;; http://stevehanov.ca/blog/index.php?id=114)
 ;;
 ;; I haven't benchmarked this (let me know the results if you do!), but it
 ;; seems clear that this algorithm will be much faster than constructing a
@@ -2167,7 +2222,7 @@ of the default key-dist-data list."
 
   ;; construct rankfun to sort by Lewenstein distance if requested
   (when (eq rankfun t)
-    (setq rankfun (trie--construct-Lewenstein-rankfun
+    (setq rankfun (trie--construct-fuzzy-match-rankfun
 		   (trie--comparison-function trie))))
 
   ;; accumulate results
@@ -2196,9 +2251,8 @@ of the default key-dist-data list."
 			     cmpfun equalfun lookupfun mapfun accumulator)
   ;; Search everything below NODE for matches within Lewenstein distance
   ;; DISTANCE of STRING. ROW is the previous row of the Lewenstein table. SEQ
-  ;; is the sequence corresponding to NODE. If COMPLETE is non-nil, return
-  ;; completions of matches, otherwise return matches themselves. Remaining
-  ;; arguments are corresponding trie functions.
+  ;; is the sequence corresponding to NODE. Remaining arguments are
+  ;; corresponding trie functions.
 
   ;; if we're at a data node and SEQ is within DISTANCE of STRING (i.e. last
   ;; entry of row is <= DISTANCE), accumulate result
@@ -2445,7 +2499,7 @@ of the default key-dist-data list."
 
   ;; construct rankfun to sort by Lewenstein distance if requested
   (when (eq rankfun t)
-    (setq rankfun (trie--construct-Lewenstein-rankfun
+    (setq rankfun (trie--construct-fuzzy-complete-rankfun
 		   (trie--comparison-function trie))))
 
   ;; accumulate results
@@ -2477,16 +2531,14 @@ of the default key-dist-data list."
   ;; Search everything below NODE for completions of prefixes within
   ;; Lewenstein distance DISTANCE of PREFIX. ROW is the previous row of the
   ;; Lewenstein table. SEQ is the sequence corresponding to NODE. PFXCOST is
-  ;; minimum distance of any prefix of seq. Remaining arguments are
-  ;; corresponding trie functions.
+  ;; the minimum distance of any prefix of SEQ, PFXLEN the length of that
+  ;; prefix. Remaining arguments are corresponding trie functions.
 
   ;; if we're at a data node and SEQ is within DISTANCE of PREFIX (i.e. last
   ;; entry of row is <= DISTANCE), accumulate result
   (if (trie--node-data-p node)
-      (when (<= (aref row (1- (length row))) distance)
-	(funcall accumulator
-		 (list seq (aref row (1- (length row))) (length seq))
-		 (trie--node-data node)))
+      (when (<= pfxcost distance)
+	(funcall accumulator (list seq pfxcost pfxlen) (trie--node-data node)))
 
     ;; build next row of Lewenstein table
     (setq row (Lewenstein--next-row
@@ -2494,26 +2546,29 @@ of the default key-dist-data list."
 	  seq (trie--seq-append seq (trie--node-split node)))
     (when (<= (aref row (1- (length row))) pfxcost)
       (setq pfxcost (aref row (1- (length row)))
-	    pfxlen (length seq)))
+	    pfxlen  (length seq)))
 
-    ;; as long as some row entry is < DISTANCE, recursively search below NODE
-    (if (<= (apply #'min (append row nil)) distance)
+    (let ((min (apply #'min (append row nil))))
+      (cond
+       ;; if there's a prefix of current SEQ within DISTANCE of PREFIX and no
+       ;; ROW entry is less than this, then we're not going to find a better
+       ;; prefix, so accumulate all completions below NODE
+       ((and (<= pfxcost distance) (> min pfxcost))
+	(trie--mapc
+	 (lambda (n s)
+     	   (funcall accumulator (list s pfxcost pfxlen) (trie--node-data n)))
+	 mapfun node seq reverse))
+
+       ;; as long as some ROW entry is <= DISTANCE, recursively search below NODE
+       ((<= min distance)
 	(funcall mapfun
 		 (lambda (n)
 		   (trie--do-fuzzy-complete
 		    n row seq pfxcost pfxlen prefix distance reverse
 		    cmpfun equalfun lookupfun mapfun accumulator))
 		 (trie--node-subtree node)
-		 reverse)
-
-      ;; otherwise, if we've found a prefix within DISTANCE of PREFIX,
-      ;; accumulate all completions below node
-      (when (<= pfxcost distance)
-	(trie--mapc
-	 (lambda (n s)
-	   (funcall accumulator (list s pfxcost pfxlen) (trie--node-data n)))
-	 mapfun node seq reverse))
-      )))
+		 reverse))
+       ))))
 
 
 
