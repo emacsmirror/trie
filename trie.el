@@ -2476,10 +2476,10 @@ the form:
 
     ((KEY DIST PFXLEN) . DATA)
 
-where KEY is a key from the trie, DIST is its Lewenstein
-distances from PREFIX, and DATA is its associated data. RANKFUN
-should return non-nil if first argument is ranked strictly higher
-than the second, nil otherwise.
+where KEY is a key from the trie, DIST is its Lewenstein distance
+from PREFIX, and DATA is its associated data. RANKFUN should
+return non-nil if first argument is ranked strictly higher than
+the second, nil otherwise.
 
 
 The FILTER argument sets a filter function for the matches. If
@@ -2660,9 +2660,9 @@ give meaningful results; use `trie-complete-stack' instead.)"
 	(while (and node
 		    (not (and (trie--node-data-p node)
 			      (or (eq distance t)  ; completing a prefix
-				  (<= (aref row (1- (length row))) distance))
+				  (<= pfxcost distance))
 			      )))
-	   ;; drop data nodes whose SEQ is greater than DISTANCE
+	   ;; drop data nodes whose prefix cost is greater than DISTANCE
 	  (unless (trie--node-data-p node)
 	    ;; build next row of Lewenstein table
 	    (setq row (Lewenstein--next-row
@@ -2670,46 +2670,49 @@ give meaningful results; use `trie-complete-stack' instead.)"
 		  seq (trie--seq-append seq (trie--node-split node)))
 	    (when (<= (aref row (1- (length row))) pfxcost)
 	      (setq pfxcost (aref row (1- (length row)))
-		    pfxlen (length seq)))
+		    pfxlen  (length seq)))
 
-	    (cond
-	     ;; if we're completing a prefix, always push next node onto stack
-	     ((eq distance t)
-	      (push
-	       (list seq
-		     (funcall stack-createfun
-			      (trie--node-subtree node) reverse)
-		     prefix t row pfxcost pfxlen)
-	       store))
+	    (let ((min (apply #'min (append row nil))))
+	      (cond
+	       ;; if we're completing a prefix, always push next node onto stack
+	       ((eq distance t)
+		(push
+		 (list seq
+		       (funcall stack-createfun
+				(trie--node-subtree node) reverse)
+		       prefix t row pfxcost pfxlen)
+		 store))
 
-	     ;; if we've found a prefix within DISTANCE of PREFIX, then
-	     ;; everything below node belongs on stack
-	     ((<= (aref row (1- (length row))) distance)
-	      (push
-	       (list seq
-		     (funcall stack-createfun
-			      (trie--node-subtree node) reverse)
-		     ;; t in distance slot indicates completing
-		     prefix t row pfxcost pfxlen)
-	       store))
+	       ;; if there's a prefix of current SEQ within DISTANCE of PREFIX
+	       ;; and no ROW entry is less than this, we're not going to find
+	       ;; a better prefix, so everything below node belongs on stack
+	       ((and (<= pfxcost distance) (> min pfxcost))
+		(push
+		 (list seq
+		       (funcall stack-createfun
+				(trie--node-subtree node) reverse)
+		       ;; t in distance slot indicates completing
+		       prefix t row pfxcost pfxlen)
+		 store))
 
-	     ;; if some row entry for non-data node is <= DISTANCE, push node
-	     ;; onto stack
-	     ((<= (apply #'min (append row nil)) distance)
-	      (push
-	       (list seq
-		     (funcall stack-createfun
-			      (trie--node-subtree node) reverse)
-		     prefix distance row pfxcost pfxlen)
-	       store))))
+	       ;; if some row entry for non-data node is <= DISTANCE, push node
+	       ;; onto stack
+	       ((<= min distance)
+		(push
+		 (list seq
+		       (funcall stack-createfun
+				(trie--node-subtree node) reverse)
+		       prefix distance row pfxcost pfxlen)
+		 store))
+	       )))
 
 	  ;; get next node from stack
 	  (when (setq node (car store))
-	    (setq seq (nth 0 node)
-		  prefix (nth 2 node)
+	    (setq seq      (nth 0 node)
+		  prefix   (nth 2 node)
 		  distance (nth 3 node)
-		  row (nth 4 node)
-		  node (funcall stack-popfun (nth 1 node)))
+		  row      (nth 4 node)
+		  node     (funcall stack-popfun (nth 1 node)))
 	    ;; drop head of stack if nodes are exhausted
 	    (when (funcall stack-emptyfun (nth 1 (car store)))
 	      (setq store (cdr store)))))
