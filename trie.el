@@ -187,7 +187,7 @@
   (declare (indent 1) (debug t))
   (if (let ((tempvar nil)
 	    (f (let ((tempvar t)) (lambda () tempvar))))
-	tempvar  ;; shut up "unused lexical variable" byte-compiler warning
+	tempvar   ; shut up "unused lexical variable" byte-compiler warning
 	(funcall f))
       then else))
 
@@ -540,7 +540,7 @@ type of sequence as SEQ."
 ;;;                     Basic trie operations
 
 ;;;###autoload
-(defalias 'make-trie 'trie--create
+(defalias 'make-trie #'trie--create
   "Return a new trie that uses comparison function COMPARISON-FUNCTION.
 
 A trie stores sequences (strings, vectors or lists) along with
@@ -556,7 +556,7 @@ the default, so this argument is useless for now.
 
 
 ;;;###autoload
-(defalias 'trie-create 'make-trie)
+(defalias 'trie-create #'make-trie)
 
 
 ;;;###autoload
@@ -2516,18 +2516,26 @@ PREFIX.
 PREFIX is a sequence (vector, list or string), whose elements are
 of the same type as elements of the trie keys. If PREFIX is a
 string, it must be possible to apply `string' to individual
-elements of the keys stored in the trie. The KEYs returned in the
-list will be sequences of the same type as PREFIX.
+elements of the keys stored in the trie. The KEYs returned will
+be sequences of the same type as PREFIX.
 
-DISTANCE must be a positive integer. (Note that DISTANCE=0 will
-not give meaningful results; use `trie-complete' instead.)
+DISTANCE is a positive integer specifying the maximum Lewenstein
+distance prefixes from PREFIX. \(Note that DISTANCE=0 will not
+give meaningful results; use `trie-complete' instead.\)
+
+DISTANCE can also be a cons cell \(LENGTH . DISTANCE\) containing
+two positive integers. In this case, the first LENGTH elements of
+PREFIX must be matched exactly, and the remaining elements must
+be within the specified Lewenstain DISTANCE.
 
 The optional integer argument MAXNUM limits the results to the
 first MAXNUM matches. Otherwise, all matches are returned.
 
 
 RANKFUN overrides the default lexicographic ordering of the
-results. If it is t, matches are instead ordered by increasing
+results.
+
+If it is t, matches are instead ordered by increasing
 Lewenstein distance of their prefix, with same-distance prefixes
 ordered lexicographically.
 
@@ -2537,12 +2545,12 @@ If RANKFUN is a cons cell of the form
 
 then matches are again ordered by increasing Lewenstein distance
 of their prefix, but with same-distance prefixes ordered by
-FUNCTION. This should take two arguments, both of the form
+FUNCTION, which should take two arguments both of the form
 
     (KEY . DATA)
 
 where KEY is a key from the trie and DATA is its associated data.
-FUNCTION should return non-nil if first argument is ranked
+FUNCTION should return non-nil if the first argument is ranked
 strictly higher than the second, nil otherwise.
 
 If RANKFUN is a function, it must accept two arguments, both of
@@ -2556,60 +2564,71 @@ return non-nil if first argument is ranked strictly higher than
 the second, nil otherwise.
 
 
-
-The FILTER argument sets a filter function for the matches. If
-supplied, it is called for each possible match with two
-arguments: a (KEY DIST PFXLEN) list, and DATA. If the filter
-function returns nil, the match is not included in the results,
-and does not count towards MAXNUM.
+FILTER sets a filter function for the matches. If supplied, it is
+called for each possible match with two arguments: a
+\(KEY DIST PFXLEN\) list, and DATA. If FILTER returns nil, that
+match is not included in the results, and does not count towards
+MAXNUM.
 
 RESULTFUN defines a function used to process results before
 adding them to the final result list. If specified, it should
-accept two arguments: a (KEY DIST PFXLEN) list, and DATA. Its
+accept two arguments: a \(KEY DIST PFXLEN\) list, and DATA. Its
 return value is what gets added to the final result list, instead
-of the default key-dist-data list."
+of the default key-dist-pfxlen-data list."
 
   ;; convert trie from print-form if necessary
   (trie-transform-from-read-warn trie)
 
   (let ((equalfun (trie--construct-equality-function
 		   (trie--comparison-function trie)))
-	ranked-by-dist stats)
-    ;; construct rankfun to sort by Lewenstein distance if requested
-    (cond
-     ((eq rankfun t)
-      (setq rankfun (trie--construct-fuzzy-complete-rankfun
-		     (trie--comparison-function trie))
-	    ranked-by-dist 'dist-only))
-     ((eq (car-safe rankfun) t)
-      (setq rankfun (trie--construct-fuzzy-complete-dist-rankfun
-		     (cdr rankfun))
-	    ranked-by-dist t)))
-    (when ranked-by-dist (setq stats (make-list (1+ distance) 0)))
+	(node (trie--root trie))
+	length ranked-by-dist stats)
+    ;; sort out distance argument and find start node
+    (when (consp distance)
+      (setq length   (car distance)
+	    distance (cdr distance)
+	    node (trie--node-find (trie--root trie)
+				  (cl-subseq prefix 0 length)
+				  (trie--lookupfun trie))
+	    prefix (cl-subseq prefix length)))
 
-    ;; accumulate results
-    (trie--accumulate-results
-     rankfun maxnum reverse filter resultfun accumulator nil
-     (funcall (trie--mapfun trie)
-	      (lambda (node)
-		(trie--do-fuzzy-complete
-		 node
-		 (apply #'vector (number-sequence 0 (length prefix)))
-		 (cond ((stringp prefix) "") ((listp prefix) ()) (t []))
-		 (length prefix) 0
-		 ;; FIXME: Would it pay to replace these arguments with
-		 ;;        dynamically-scoped variables, to save stack space?
-		 prefix distance (if maxnum reverse (not reverse))
-		 (trie--comparison-function trie)
-		 equalfun
-		 (trie--lookupfun trie)
-		 (trie--mapfun trie)
-		 accumulator
-		 ranked-by-dist
-		 (and ranked-by-dist maxnum)
-		 (and ranked-by-dist maxnum stats)))
-	      (trie--node-subtree (trie--root trie))
-	      (if maxnum reverse (not reverse))))))
+    (when (setq node (trie--node-subtree node))
+
+      ;; construct rankfun to sort by Lewenstein distance if requested
+      (cond
+       ((eq rankfun t)
+	(setq rankfun (trie--construct-fuzzy-complete-rankfun
+		       (trie--comparison-function trie))
+	      ranked-by-dist 'dist-only))
+       ((eq (car-safe rankfun) t)
+	(setq rankfun (trie--construct-fuzzy-complete-dist-rankfun
+		       (cdr rankfun))
+	      ranked-by-dist t)))
+      (when ranked-by-dist (setq stats (make-list (1+ distance) 0)))
+
+      ;; accumulate results
+      (trie--accumulate-results
+       rankfun maxnum reverse filter resultfun accumulator nil
+       (funcall (trie--mapfun trie)
+		(lambda (node)
+		  (trie--do-fuzzy-complete
+		   node
+		   (apply #'vector (number-sequence 0 (length prefix)))
+		   (cond ((stringp prefix) "") ((listp prefix) ()) (t []))
+		   (length prefix) 0
+		   ;; FIXME: Would it pay to replace these arguments with
+		   ;;        dynamically-scoped variables, to save stack space?
+		   prefix distance (if maxnum reverse (not reverse))
+		   (trie--comparison-function trie)
+		   equalfun
+		   (trie--lookupfun trie)
+		   (trie--mapfun trie)
+		   accumulator
+		   ranked-by-dist
+		   (and ranked-by-dist maxnum)
+		   (and ranked-by-dist maxnum stats)))
+		node (if maxnum reverse (not reverse))))
+      )))
 
 
 (defun trie--do-fuzzy-complete (node row seq pfxcost pfxlen
@@ -2711,7 +2730,7 @@ give meaningful results; use `trie-complete-stack' instead.)"
     (error "Trie type does not support stack/iterator operations"))
    ;; fuzzy-complete-stacks don't work for distance=0; return
    ;; a `trie-complete-stack' instead
-   ((= distance 0)
+   ((and (integerp distance) (= distance 0))
     (trie--complete-stack-create trie prefix reverse))
    (t ;; otherwise, create and initialise a fuzzy stack
     (trie--fuzzy-complete-stack-create trie prefix distance reverse))))
@@ -2721,22 +2740,31 @@ give meaningful results; use `trie-complete-stack' instead.)"
     (trie prefix distance &optional reverse)
   ;; Construct store for fuzzy completion stack based on TRIE.
   (let ((seq (cond ((stringp prefix) "") ((listp prefix) ()) (t [])))
-	store)
-    (push (list seq
-		(funcall (trie--stack-createfun trie)
-			 (trie--node-subtree (trie--root trie))
-			 reverse)  ; node
-		prefix distance
-		(apply #'vector (number-sequence 0 (length prefix)))  ; row
-		(length prefix) 0)  ; pfxcost pfxlen
-	  store)
-    (trie--fuzzy-complete-stack-repopulate
-     store reverse
-     (trie--comparison-function trie)
-     (trie--lookupfun trie)
-     (trie--stack-createfun trie)
-     (trie--stack-popfun trie)
-     (trie--stack-emptyfun trie))))
+	(node (trie--root trie))
+	length store)
+    ;; sort out distance argument and find start node
+    (when (consp distance)
+      (setq length   (car distance)
+	    distance (cdr distance)
+	    node (trie--node-find (trie--root trie)
+				  (cl-subseq prefix 0 length)
+				  (trie--lookupfun trie))
+	    prefix (cl-subseq prefix length)))
+
+    (when (setq node (trie--node-subtree node))
+      (push (list seq
+		  (funcall (trie--stack-createfun trie) node reverse)   ; node
+		  prefix distance
+		  (apply #'vector (number-sequence 0 (length prefix)))  ; row
+		  (length prefix) 0)  ; pfxcost pfxlen
+	    store)
+      (trie--fuzzy-complete-stack-repopulate
+       store reverse
+       (trie--comparison-function trie)
+       (trie--lookupfun trie)
+       (trie--stack-createfun trie)
+       (trie--stack-popfun trie)
+       (trie--stack-emptyfun trie)))))
 
 
 (defun trie--fuzzy-complete-stack-repopulate
