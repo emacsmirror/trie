@@ -456,7 +456,7 @@
 
 (defun trie--avl-transform-for-print (trie)
   ;; transform avl-tree based TRIE to print form.
-  (trie-mapc-internal
+  (trie--mapc-internal
    (lambda (avl _seq) (setf (avl-tree--cmpfun avl) nil))
    trie))
 
@@ -464,7 +464,7 @@
 (defun trie--avl-transform-from-read (trie)
   ;; transform avl-tree based TRIE from print form."
   (let ((--trie-avl-transform--cmpfun (trie--cmpfun trie)))
-    (trie-mapc-internal
+    (trie--mapc-internal
      (lambda (avl _seq)
        (setf (avl-tree--cmpfun avl) --trie-avl-transform--cmpfun))
      trie)))
@@ -943,7 +943,7 @@ also `trie-member-p', which does this for you.)"
    --trie--mapc--reverse))
 
 
-(defun trie-mapc-internal (function trie &optional type)
+(defun trie--mapc-internal (function trie &optional type)
   "Apply FUNCTION to all internal associative arrays within TRIE.
 FUNCTION is passed two arguments: an associative array, and the
 sequence it corresponds to.
@@ -951,16 +951,16 @@ sequence it corresponds to.
 Optional argument TYPE (one of the symbols vector, lisp or
 string) sets the type of sequence passed to FUNCTION. Defaults to
 vector."
-  (trie--mapc-internal function (trie--mapfun trie) (trie--root trie)
+  (trie--mapc-internal-1 function (trie--mapfun trie) (trie--root trie)
 		       (cond ((eq type 'string) "")
 			     ((eq type 'lisp) ())
 			     (t []))))
 
 
-(defun trie--mapc-internal (--trie--mapc-internal--function
-			     --trie--mapc-internal--mapfun
-			     --trie--mapc-internal--root
-			     --trie--mapc-internal--seq)
+(defun trie--mapc-internal-1 (--trie--mapc-internal--function
+			      --trie--mapc-internal--mapfun
+			      --trie--mapc-internal--root
+			      --trie--mapc-internal--seq)
   (funcall
    --trie--mapc-internal--mapfun
    (lambda (--trie--mapc-internal--node)
@@ -969,7 +969,7 @@ vector."
        (funcall --trie--mapc-internal--function
 		(trie--node-subtree --trie--mapc-internal--node)
 		--trie--mapc-internal--seq)
-       (trie--mapc-internal
+       (trie--mapc-internal-1
 	--trie--mapc-internal--function
 	--trie--mapc-internal--mapfun
 	--trie--mapc-internal--node
