@@ -1607,20 +1607,17 @@ default key-data cons cell."
 			  (trie--comparison-function trie))))))
 
   ;; accumulate completions
-  (let (node)
     (trie--accumulate-results
      rankfun maxnum reverse filter resultfun accumulator nil
-     (mapc (lambda (pfx)
-	     (setq node (trie--node-find (trie--root trie) pfx
-					 (trie--lookupfun trie)))
-	     (when node
-	       (trie--mapc
-		(lambda (node seq)
-		  (funcall accumulator seq (trie--node-data node)))
-		(trie--mapfun trie) node pfx
-		(if maxnum reverse (not reverse)))))
-	   prefix))
-    ))
+     (let (node)
+       (dolist (pfx prefix)
+	 (when (setq node (trie--node-find (trie--root trie) pfx
+					   (trie--lookupfun trie)))
+	   (trie--mapc
+	    (lambda (node seq)
+	      (funcall accumulator seq (trie--node-data node)))
+	    (trie--mapfun trie) node pfx
+	    (if maxnum reverse (not reverse))))))))
 
 
 
@@ -2270,28 +2267,41 @@ of the default key-dist-data list."
 	    ranked-by-dist t)))
     (when ranked-by-dist (setq stats (make-list (1+ distance) 0)))
 
+      ;; FIXME: the test for a list of prefixes, below, will fail if the
+      ;;        PREFIX sequence is a list, and the elements of PREFIX are
+      ;;        themselves lists (there might be no easy way to fully fix
+      ;;        this...)
+      (if (or (atom string)
+	      (and (listp string) (not (sequencep (car string)))))
+	  (setq string (list string))
+	;; sort list of prefixes if sorting completions lexicographicly
+	(when (null rankfun)
+	  (setq string
+		(sort string (trie-construct-sortfun
+			      (trie--comparison-function trie))))))
     ;; accumulate results
     (trie--accumulate-results
      rankfun maxnum reverse filter resultfun accumulator nil
-     (funcall (trie--mapfun trie)
-	      (lambda (node)
-		(trie--do-fuzzy-match
-		 node
-		 (apply #'vector (number-sequence 0 (length string)))
-		 (cond ((stringp string) "") ((listp string) ()) (t []))
-		 ;; FIXME: Would it pay to replace these arguments with
-		 ;;        dynamically-scoped variables, to save stack space?
-		 string distance (if maxnum reverse (not reverse))
-		 (trie--comparison-function trie)
-		 equalfun
-		 (trie--lookupfun trie)
-		 (trie--mapfun trie)
-		 accumulator
-		 ranked-by-dist
-		 (and ranked-by-dist maxnum)
-		 (and ranked-by-dist maxnum stats)))
-	      (trie--node-subtree (trie--root trie))
-	      (if maxnum reverse (not reverse))))))
+     (dolist (str string)
+       (funcall (trie--mapfun trie)
+		(lambda (node)
+		  (trie--do-fuzzy-match
+		   node
+		   (apply #'vector (number-sequence 0 (length str)))
+		   (cond ((stringp str) "") ((listp str) ()) (t []))
+		   ;; FIXME: Would it pay to replace these arguments with
+		   ;;        dynamically-scoped variables, to save stack space?
+		   str distance (if maxnum reverse (not reverse))
+		   (trie--comparison-function trie)
+		   equalfun
+		   (trie--lookupfun trie)
+		   (trie--mapfun trie)
+		   accumulator
+		   ranked-by-dist
+		   (and ranked-by-dist maxnum)
+		   (and ranked-by-dist maxnum stats)))
+		(trie--node-subtree (trie--root trie))
+		(if maxnum reverse (not reverse)))))))
 
 
 (defun trie--do-fuzzy-match (node row seq string distance reverse
@@ -2381,22 +2391,32 @@ STRING."
 (defun trie--fuzzy-match-stack-construct-store
     (trie string distance &optional reverse)
   ;; Construct store for fuzzy stack based on TRIE.
-  (let ((seq (cond ((stringp string) "") ((listp string) ()) (t [])))
-	store)
-    (push (list seq
-		(funcall (trie--stack-createfun trie)
-			 (trie--node-subtree (trie--root trie))
-			 reverse)
-		string distance
-		(apply #'vector (number-sequence 0 (length string))))
-	  store)
-    (trie--fuzzy-match-stack-repopulate
-     store reverse
-     (trie--comparison-function trie)
-     (trie--lookupfun trie)
-     (trie--stack-createfun trie)
-     (trie--stack-popfun trie)
-     (trie--stack-emptyfun trie))))
+  (let (seq store)
+    (if (or (atom string)
+	    (and (listp string)
+		 (not (sequencep (car string)))))
+	(setq string (list string))
+      (setq string
+	    (sort string
+		  (trie-construct-sortfun
+		   (trie--comparison-function trie)
+		   (not reverse)))))
+    (dolist (str string)
+      (setq seq (cond ((stringp string) "") ((listp string) ()) (t [])))
+      (push (list seq
+		  (funcall (trie--stack-createfun trie)
+			   (trie--node-subtree (trie--root trie))
+			   reverse)
+		  str distance
+		  (apply #'vector (number-sequence 0 (length string))))
+	    store)
+      (trie--fuzzy-match-stack-repopulate
+       store reverse
+       (trie--comparison-function trie)
+       (trie--lookupfun trie)
+       (trie--stack-createfun trie)
+       (trie--stack-popfun trie)
+       (trie--stack-emptyfun trie)))))
 
 
 (defun trie--fuzzy-match-stack-repopulate
@@ -2581,15 +2601,11 @@ of the default key-dist-pfxlen-data list."
 
   (let ((equalfun (trie--construct-equality-function
 		   (trie--comparison-function trie)))
-	(node (trie--root trie))
-	length ranked-by-dist stats)
+	length ranked-by-dist stats node)
     ;; sort out distance argument and find start node
     (when (consp distance)
       (setq length   (car distance)
 	    distance (cdr distance)
-	    node (trie--node-find (trie--root trie)
-				  (cl-subseq prefix 0 length)
-				  (trie--lookupfun trie))
 	    prefix (cl-subseq prefix length)))
 
     (when (setq node (trie--node-subtree node))
@@ -2606,28 +2622,45 @@ of the default key-dist-pfxlen-data list."
 	      ranked-by-dist t)))
       (when ranked-by-dist (setq stats (make-list (1+ distance) 0)))
 
+      ;; FIXME: the test for a list of prefixes, below, will fail if the
+      ;;        PREFIX sequence is a list, and the elements of PREFIX are
+      ;;        themselves lists (there might be no easy way to fully fix
+      ;;        this...)
+      (if (or (atom prefix)
+	      (and (listp prefix) (not (sequencep (car prefix)))))
+	  (setq prefix (list prefix))
+	;; sort list of prefixes if sorting completions lexicographicly
+	(when (null rankfun)
+	  (setq prefix
+		(sort prefix (trie-construct-sortfun
+			      (trie--comparison-function trie))))))
+
       ;; accumulate results
       (trie--accumulate-results
        rankfun maxnum reverse filter resultfun accumulator nil
-       (funcall (trie--mapfun trie)
-		(lambda (node)
-		  (trie--do-fuzzy-complete
-		   node
-		   (apply #'vector (number-sequence 0 (length prefix)))
-		   (cond ((stringp prefix) "") ((listp prefix) ()) (t []))
-		   (length prefix) 0
-		   ;; FIXME: Would it pay to replace these arguments with
-		   ;;        dynamically-scoped variables, to save stack space?
-		   prefix distance (if maxnum reverse (not reverse))
-		   (trie--comparison-function trie)
-		   equalfun
-		   (trie--lookupfun trie)
-		   (trie--mapfun trie)
-		   accumulator
-		   ranked-by-dist
-		   (and ranked-by-dist maxnum)
-		   (and ranked-by-dist maxnum stats)))
-		node (if maxnum reverse (not reverse))))
+       (dolist (pfx prefix)
+	 (setq node (trie--node-find (trie--root trie)
+				     (cl-subseq prefix 0 length)
+				     (trie--lookupfun trie)))
+	 (funcall (trie--mapfun trie)
+		  (lambda (node)
+		    (trie--do-fuzzy-complete
+		     node
+		     (apply #'vector (number-sequence 0 (length prefix)))
+		     (cond ((stringp prefix) "") ((listp prefix) ()) (t []))
+		     (length prefix) 0
+		     ;; FIXME: Would it pay to replace these arguments with
+		     ;;        dynamically-scoped variables, to save stack space?
+		     pfx distance (if maxnum reverse (not reverse))
+		     (trie--comparison-function trie)
+		     equalfun
+		     (trie--lookupfun trie)
+		     (trie--mapfun trie)
+		     accumulator
+		     ranked-by-dist
+		     (and ranked-by-dist maxnum)
+		     (and ranked-by-dist maxnum stats)))
+		  node (if maxnum reverse (not reverse)))))
       )))
 
 
