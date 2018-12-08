@@ -2966,9 +2966,14 @@ results\)."
 (defun trie--prin1 (_trie stream)
   (princ "#<trie>" stream))
 
+(defun trie--node-prin1 (_trie stream)
+  (princ "#<trie>" stream))
+
 (defun trie--edebug-pretty-print (object)
   (cond
    ((trie-p object) "#<trie>")
+   ((and (trie--node-p object) (cl-struct-p (trie--node-subtree object)))
+    "#<trie--node>")
    ((null object) "nil")
    ((let ((tlist object) (test t))
       (while (or (trie-p (car-safe tlist))
@@ -2976,6 +2981,13 @@ results\)."
 	(setq tlist (cdr tlist)))
       test)
     (concat "(" (mapconcat (lambda (_dummy) "#<trie>") object " ") ")"))
+   ((let ((tlist object) (test t))
+      (while (or (and (trie--node-p (car-safe tlist))
+		      (cl-struct-p (trie--node-subtree (car tlist))))
+		 (and tlist (setq test nil)))
+	(setq tlist (cdr tlist)))
+      test)
+    (concat "(" (mapconcat (lambda (_dummy) "#<trie--node>") object " ") ")"))
 ;; ((vectorp object)
 ;;  (let ((pretty "[") (len (length object)))
 ;;    (dotimes (i (1- len))
@@ -2989,15 +3001,15 @@ results\)."
 ;; 	      "]")))
    ))
 
-(if (fboundp 'cl-print-object)
-    (cl-defmethod cl-print-object ((object trie-) stream)
-      (trie--prin1 object stream))
+(when (fboundp 'cl-print-object)
+  (cl-defmethod cl-print-object ((object trie-) stream)
+    (trie--prin1 object stream)))
 
   (when (fboundp 'ad-define-subr-args)
     (ad-define-subr-args 'edebug-prin1 '(object &optional printcharfun)))
 
   (defadvice edebug-prin1
-      (around trie activate compile preactivate)
+      (around trie '(object) activate compile preactivate)
     (let ((pretty (trie--edebug-pretty-print object)))
       (if pretty
 	  (progn
@@ -3009,11 +3021,11 @@ results\)."
     (ad-define-subr-args 'edebug-prin1-to-string '(object &optional noescape)))
 
   (defadvice edebug-prin1-to-string
-      (around trie activate compile preactivate)
+      (around trie (object) activate compile preactivate)
     (let ((pretty (trie--edebug-pretty-print object)))
       (if pretty
 	  (setq ad-return-value pretty)
-        ad-do-it))))
+        ad-do-it)));)
 
 
 (provide 'trie)
