@@ -2265,7 +2265,6 @@ of the default key-dist-data list."
       (setq rankfun (trie--construct-fuzzy-match-dist-rankfun
 		     (cdr rankfun))
 	    ranked-by-dist t)))
-    (when ranked-by-dist (setq stats (make-list (1+ distance) 0)))
 
       ;; FIXME: the test for a list of prefixes, below, will fail if the
       ;;        PREFIX sequence is a list, and the elements of PREFIX are
@@ -2283,6 +2282,7 @@ of the default key-dist-data list."
     (trie--accumulate-results
      rankfun maxnum reverse filter resultfun accumulator nil
      (dolist (str string)
+       (when ranked-by-dist (setq stats (make-vector (1+ distance) 0)))
        (funcall (trie--mapfun trie)
 		(lambda (node)
 		  (trie--do-fuzzy-match
@@ -2319,9 +2319,9 @@ of the default key-dist-data list."
 	(let ((dist (aref row (1- (length row)))))
 	  (funcall accumulator (cons seq dist) (trie--node-data node))
 	  (and stats
-	       (incf (nth dist stats))
+	       (incf (aref stats dist))
 	       (eq ranked-by-dist 'dist-only)
-	       (>= (nth 0 stats) maxnum)
+	       (>= (aref stats 0) maxnum)
 	       (throw 'trie--accumulate-done nil))))
 
     ;; build next row of Lewenstein table
@@ -2333,7 +2333,7 @@ of the default key-dist-data list."
     ;; NUM = number of guaranteed-better matches already accumulated
     (let* ((min (apply #'min (append row nil)))
 	   (num (and ranked-by-dist
-		     (apply #'+ (cl-subseq stats 0 min)))))
+		     (apply #'+ (append (substring stats 0 min) '())))))
       ;; skip subtree if we already have enough guaranteed-better completions
       (when (or (null ranked-by-dist) (< num maxnum))
 	;; as long as some row entry is <= DISTANCE, recursively search below NODE
@@ -2601,54 +2601,53 @@ of the default key-dist-pfxlen-data list."
 
   (let ((equalfun (trie--construct-equality-function
 		   (trie--comparison-function trie)))
-	length ranked-by-dist stats node)
+	length ranked-by-dist stats node string)
     ;; sort out distance argument and find start node
     (when (consp distance)
       (setq length   (car distance)
 	    distance (cdr distance)
+	    string (cl-subseq prefix 0 length)
 	    prefix (cl-subseq prefix length)))
 
-    (when (setq node (trie--node-subtree node))
+    ;; construct rankfun to sort by Lewenstein distance if requested
+    (cond
+     ((eq rankfun t)
+      (setq rankfun (trie--construct-fuzzy-complete-rankfun
+		     (trie--comparison-function trie))
+	    ranked-by-dist 'dist-only))
+     ((eq (car-safe rankfun) t)
+      (setq rankfun (trie--construct-fuzzy-complete-dist-rankfun
+		     (cdr rankfun))
+	    ranked-by-dist t)))
 
-      ;; construct rankfun to sort by Lewenstein distance if requested
-      (cond
-       ((eq rankfun t)
-	(setq rankfun (trie--construct-fuzzy-complete-rankfun
-		       (trie--comparison-function trie))
-	      ranked-by-dist 'dist-only))
-       ((eq (car-safe rankfun) t)
-	(setq rankfun (trie--construct-fuzzy-complete-dist-rankfun
-		       (cdr rankfun))
-	      ranked-by-dist t)))
-      (when ranked-by-dist (setq stats (make-list (1+ distance) 0)))
+    ;; FIXME: the test for a list of prefixes, below, will fail if the
+    ;;        PREFIX sequence is a list, and the elements of PREFIX are
+    ;;        themselves lists (there might be no easy way to fully fix
+    ;;        this...)
+    (if (or (atom prefix)
+	    (and (listp prefix) (not (sequencep (car prefix)))))
+	(setq prefix (list prefix))
+      ;; sort list of prefixes if sorting completions lexicographicly
+      (when (null rankfun)
+	(setq prefix
+	      (sort prefix (trie-construct-sortfun
+			    (trie--comparison-function trie))))))
 
-      ;; FIXME: the test for a list of prefixes, below, will fail if the
-      ;;        PREFIX sequence is a list, and the elements of PREFIX are
-      ;;        themselves lists (there might be no easy way to fully fix
-      ;;        this...)
-      (if (or (atom prefix)
-	      (and (listp prefix) (not (sequencep (car prefix)))))
-	  (setq prefix (list prefix))
-	;; sort list of prefixes if sorting completions lexicographicly
-	(when (null rankfun)
-	  (setq prefix
-		(sort prefix (trie-construct-sortfun
-			      (trie--comparison-function trie))))))
-
-      ;; accumulate results
-      (trie--accumulate-results
-       rankfun maxnum reverse filter resultfun accumulator nil
-       (dolist (pfx prefix)
-	 (setq node (trie--node-find (trie--root trie)
-				     (cl-subseq prefix 0 length)
-				     (trie--lookupfun trie)))
+    ;; accumulate results
+    (trie--accumulate-results
+     rankfun maxnum reverse filter resultfun accumulator nil
+     (dolist (pfx prefix)
+       (when (setq node (trie--node-find (trie--root trie) string
+					 (trie--lookupfun trie)))
+	 (when ranked-by-dist (setq stats (make-vector (1+ distance) 0)))
 	 (funcall (trie--mapfun trie)
 		  (lambda (node)
 		    (trie--do-fuzzy-complete
 		     node
-		     (apply #'vector (number-sequence 0 (length prefix)))
-		     (cond ((stringp prefix) "") ((listp prefix) ()) (t []))
-		     (length prefix) 0
+		     (apply #'vector (number-sequence 0 (length pfx)))
+		     (cond ((> length 0) string)
+			   ((stringp pfx) "") ((listp pfx) ()) (t []))
+		     (length pfx) (length string)
 		     ;; FIXME: Would it pay to replace these arguments with
 		     ;;        dynamically-scoped variables, to save stack space?
 		     pfx distance (if maxnum reverse (not reverse))
@@ -2660,8 +2659,9 @@ of the default key-dist-pfxlen-data list."
 		     ranked-by-dist
 		     (and ranked-by-dist maxnum)
 		     (and ranked-by-dist maxnum stats)))
-		  node (if maxnum reverse (not reverse)))))
-      )))
+		  (trie--node-subtree node)
+		  (if maxnum reverse (not reverse)))
+	 )))))
 
 
 (defun trie--do-fuzzy-complete (node row seq pfxcost pfxlen
@@ -2680,9 +2680,9 @@ of the default key-dist-pfxlen-data list."
       (when (<= pfxcost distance)
 	(funcall accumulator (list seq pfxcost pfxlen) (trie--node-data node))
 	(and stats
-	     (incf (nth pfxcost stats))
+	     (incf (aref stats pfxcost))
 	     (eq ranked-by-dist 'dist-only)
-	     (>= (nth 0 stats) maxnum)
+	     (>= (aref stats 0) maxnum)
 	     (throw 'trie--accumulate-done nil)))
 
     ;; build next row of Lewenstein table
@@ -2697,7 +2697,8 @@ of the default key-dist-pfxlen-data list."
     ;; NUM = number of guaranteed-better completions already accumulated
     (let* ((min (apply #'min (append row nil)))
 	   (num (and ranked-by-dist
-		     (apply #'+ (cl-subseq stats 0 (min pfxcost min))))))
+		     (apply #'+ (append (substring stats 0 (min pfxcost min))
+					'())))))
       ;; skip subtree if we already have enough guaranteed-better completions
       (when (or (null ranked-by-dist) (< num maxnum))
 	(cond
@@ -2709,9 +2710,9 @@ of the default key-dist-pfxlen-data list."
 	   (lambda (n s)
      	     (funcall accumulator (list s pfxcost pfxlen) (trie--node-data n))
 	     (and stats
-		  (incf (nth pfxcost stats))
+		  (incf (aref stats pfxcost))
 		  (eq ranked-by-dist 'dist-only)
-		  (>= (nth 0 stats) maxnum)
+		  (>= (aref stats 0) maxnum)
 		  (throw 'trie--accumulate-done nil)))
 	   mapfun node seq reverse))
 
