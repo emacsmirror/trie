@@ -226,74 +226,80 @@
 
 ;; create Lewenstein rank functions from trie comparison function
 (trie--if-lexical-binding
-    (defun trie--construct-fuzzy-match-rankfun (comparison-function)
-      (let ((compfun (trie-construct-sortfun comparison-function)))
+    (defun trie--construct-fuzzy-match-rankfun (rankfun trie)
+      (cond
+       ((or (eq rankfun t) (eq rankfun 'distance))
+	(let ((compfun (trie-construct-sortfun
+			(trie-comparison-function trie))))
+	  (lambda (a b)
+	    (cond
+	     ((< (cdar a) (cdar b)) t)
+	     ((> (cdar a) (cdar b)) nil)
+	     (t (funcall compfun (caar a) (caar b)))))))
+       ((or (eq (car-safe rankfun) t) (eq (car-safe rankfun) 'distance))
+	(setq rankfun (cdr rankfun))
 	(lambda (a b)
 	  (cond
 	   ((< (cdar a) (cdar b)) t)
 	   ((> (cdar a) (cdar b)) nil)
-	   (t (funcall compfun (caar a) (caar b)))))))
-  (defun trie--construct-fuzzy-match-rankfun (comparison-function)
-    `(lambda (a b)
-       (cond
-	((< (cdar a) (cdar b)) t)
-	((> (cdar a) (cdar b)) nil)
-	(t ,(trie-construct-sortfun comparison-function)
-	   (caar a) (caar b))))))
-
-
-(trie--if-lexical-binding
-    (defun trie--construct-fuzzy-match-dist-rankfun (rankfun)
-      (lambda (a b)
-	(cond
-	 ((< (cdar a) (cdar b)) t)
-	 ((> (cdar a) (cdar b)) nil)
-	 (t (funcall rankfun
-		     (cons (caar a) (cdr a))
-		     (cons (caar b) (cdr b)))))))
-  (defun trie--construct-fuzzy-match-dist-rankfun (rankfun)
-    `(lambda (a b)
-       (cond
-	((< (cdar a) (cdar b)) t)
-	((> (cdar a) (cdar b)) nil)
-	(t (,rankfun (cons (caar a) (cdr a))
-		     (cons (caar b) (cdr b))))))))
-
+	   (t (funcall rankfun
+		       (cons (caar a) (cdr a))
+		       (cons (caar b) (cdr b)))))))))
+    (defun trie--construct-fuzzy-match-rankfun (rankfun trie)
+      (cond
+       ((or (eq rankfun t) (eq rankfun 'distance))
+	`(lambda (a b)
+	   (cond
+	    ((< (cdar a) (cdar b)) t)
+	    ((> (cdar a) (cdar b)) nil)
+	    (t (,(trie-construct-sortfun (trie-comparison-function trie))
+		(caar a) (caar b))))))
+       ((or (eq (car-safe rankfun) t) (eq (car-safe rankfun) 'distance))
+	`(lambda (a b)
+	   (cond
+	    ((< (cdar a) (cdar b)) t)
+	    ((> (cdar a) (cdar b)) nil)
+	    (t (,(cdr rankfun)
+		(cons (caar a) (cdr a))
+		(cons (caar b) (cdr b))))))))))
 
 (trie--if-lexical-binding
-    (defun trie--construct-fuzzy-complete-rankfun (comparison-function)
-      (let ((compfun (trie-construct-sortfun comparison-function)))
+    (defun trie--construct-fuzzy-complete-rankfun (rankfun trie)
+      (cond
+       ((or (eq rankfun t) (eq rankfun 'distance))
+	(let ((compfun (trie-construct-sortfun
+			(trie-comparison-function trie))))
+	  (lambda (a b)
+	    (cond
+	     ((< (nth 1 (car a)) (nth 1 (car b))) t)
+	     ((> (nth 1 (car a)) (nth 1 (car b))) nil)
+	     (t (funcall compfun (caar a) (caar b)))))))
+       ((or (eq (car-safe rankfun) t) (eq (car-safe rankfun) 'distance))
+	(setq rankfun (cdr rankfun))
 	(lambda (a b)
 	  (cond
 	   ((< (nth 1 (car a)) (nth 1 (car b))) t)
 	   ((> (nth 1 (car a)) (nth 1 (car b))) nil)
-	   (t (funcall compfun (caar a) (caar b)))))))
-  (defun trie--construct-fuzzy-complete-rankfun (comparison-function)
-    `(lambda (a b)
-       (cond
-	((< (nth 1 (car a)) (nth 1 (car b))) t)
-	((> (nth 1 (car a)) (nth 1 (car b))) nil)
-	(t ,(trie-construct-sortfun comparison-function)
-	   (caar a) (caar b))))))
-
-
-(trie--if-lexical-binding
-    (defun trie--construct-fuzzy-complete-dist-rankfun (rankfun)
-      (lambda (a b)
-	(cond
-	 ((< (nth 1 (car a)) (nth 1 (car b))) t)
-	 ((> (nth 1 (car a)) (nth 1 (car b))) nil)
-	 (t (funcall rankfun
-		     (cons (caar a) (cdr a))
-		     (cons (caar b) (cdr b)))))))
-  (defun trie--construct-fuzzy-complete-dist-rankfun (rankfun)
-    `(lambda (a b)
-       (cond
-	((< (nth 1 (car a)) (nth 1 (car b))) t)
-	((> (nth 1 (car a)) (nth 1 (car b))) nil)
-	(t (,rankfun
-	    (cons (caar a) (cdr a))
-	    (cons (caar b) (cdr b))))))))
+	   (t (funcall rankfun
+		       (cons (caar a) (cdr a))
+		       (cons (caar b) (cdr b)))))))))
+  (defun trie--construct-fuzzy-complete-rankfun (rankfun trie)
+      (cond
+       ((or (eq rankfun t) (eq rankfun 'distance))
+	`(lambda (a b)
+	   (cond
+	    ((< (nth 1 (car a)) (nth 1 (car b))) t)
+	    ((> (nth 1 (car a)) (nth 1 (car b))) nil)
+	    (t (,(trie-construct-sortfun (trie-comparison-function trie))
+		(caar a) (caar b))))))
+       ((or (eq (car-safe rankfun) t) (eq (car-safe rankfun) 'distance))
+	`(lambda (a b)
+	   (cond
+	    ((< (nth 1 (car a)) (nth 1 (car b))) t)
+	    ((> (nth 1 (car a)) (nth 1 (car b))) nil)
+	    (t (,(cdr rankfun)
+		(cons (caar a) (cdr a))
+		(cons (caar b) (cdr b))))))))))
 
 
 
@@ -2100,7 +2106,7 @@ results\)."
 ;; Basic Lewenstein distance (edit distance) functions
 ;; ---------------------------------------------------
 
-(defun* Lewenstein-distance (str1 str2 &key (test 'equal))
+(defun* Lewenstein-distance (str1 str2 &key (test #'equal))
   "Return the Lewenstein distance between strings STR1 and STR2
 \(a.k.a. edit distance\).
 
@@ -2117,8 +2123,21 @@ to `equal'."
       (setq row (Lewenstein--next-row row str2 (elt str1 i) test)))
     (aref row (1- (length row)))))
 
-
 (defalias 'edit-distance 'Lewenstein-distance)
+
+
+(defun* Lewenstein-prefix-distance (prefix string &key (test #'equal))
+  "Return the Lewenstein prefix distance between PREFIX and STRING,
+i.e. the minimum distance between PREFIX and any prefix of STRING.
+
+See also `Lewenstein-distance'."
+  (let ((min (length prefix))
+	dist pfxlen)
+    (dotimes (i (length string))
+      (setq dist (Lewenstein-distance prefix (cl-subseq string 0 (1+ i))
+				      :test test))
+      (if (<= dist min) (setq min dist pfxlen (1+ i))))
+    (cons min pfxlen)))
 
 
 (defun Lewenstein--next-row (row string chr equalfun)
@@ -2255,29 +2274,28 @@ of the default key-dist-data list."
   (let ((equalfun (trie--construct-equality-function
 		   (trie--comparison-function trie)))
 	ranked-by-dist stats)
+
     ;; construct rankfun to sort by Lewenstein distance if requested
     (cond
-     ((eq rankfun t)
-      (setq rankfun (trie--construct-fuzzy-match-rankfun
-		     (trie--comparison-function trie))
-	    ranked-by-dist 'dist-only))
-     ((eq (car-safe rankfun) t)
-      (setq rankfun (trie--construct-fuzzy-match-dist-rankfun
-		     (cdr rankfun))
-	    ranked-by-dist t)))
+     ((or (eq rankfun t) (eq rankfun 'distance))
+      (setq ranked-by-dist 'dist-only))
+     ((or (eq (car-safe rankfun) t) (eq (car-safe rankfun) 'distance))
+      (setq ranked-by-dist t)))
+    (when ranked-by-dist
+      (setq rankfun (trie--construct-fuzzy-match-rankfun rankfun trie)))
 
-      ;; FIXME: the test for a list of prefixes, below, will fail if the
-      ;;        PREFIX sequence is a list, and the elements of PREFIX are
-      ;;        themselves lists (there might be no easy way to fully fix
-      ;;        this...)
-      (if (or (atom string)
-	      (and (listp string) (not (sequencep (car string)))))
-	  (setq string (list string))
-	;; sort list of prefixes if sorting completions lexicographicly
-	(when (null rankfun)
-	  (setq string
-		(sort string (trie-construct-sortfun
-			      (trie--comparison-function trie))))))
+    ;; FIXME: the test for a list of prefixes, below, will fail if the PREFIX
+    ;;        sequence is a list, and the elements of PREFIX are themselves
+    ;;        lists (there might be no easy way to fully fix this...)
+    (if (or (atom string)
+	    (and (listp string) (not (sequencep (car string)))))
+	(setq string (list string))
+      ;; sort list of prefixes if sorting completions lexicographicly
+      (when (null rankfun)
+	(setq string
+	      (sort string (trie-construct-sortfun
+			    (trie--comparison-function trie))))))
+
     ;; accumulate results
     (trie--accumulate-results
      rankfun maxnum reverse filter resultfun accumulator nil
@@ -2611,14 +2629,12 @@ of the default key-dist-pfxlen-data list."
 
     ;; construct rankfun to sort by Lewenstein distance if requested
     (cond
-     ((eq rankfun t)
-      (setq rankfun (trie--construct-fuzzy-complete-rankfun
-		     (trie--comparison-function trie))
-	    ranked-by-dist 'dist-only))
-     ((eq (car-safe rankfun) t)
-      (setq rankfun (trie--construct-fuzzy-complete-dist-rankfun
-		     (cdr rankfun))
-	    ranked-by-dist t)))
+     ((or (eq rankfun t) (eq rankfun 'distance))
+      (setq ranked-by-dist 'dist-only))
+     ((or (eq (car-safe rankfun) t) (eq (car-safe rankfun) 'distance))
+      (setq ranked-by-dist t)))
+    (when ranked-by-dist
+      (setq rankfun (trie--construct-fuzzy-complete-rankfun rankfun trie)))
 
     ;; FIXME: the test for a list of prefixes, below, will fail if the
     ;;        PREFIX sequence is a list, and the elements of PREFIX are
