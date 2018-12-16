@@ -146,6 +146,7 @@
 ;;; Code:
 
 (eval-when-compile (require 'cl))
+(require 'cl-lib)
 (require 'avl-tree)
 (require 'heap)
 (require 'tNFA)
@@ -917,17 +918,23 @@ also `trie-member-p', which does this for you.)"
 
 (defun trie--mapc (--trie--mapc--function --trie--mapc--mapfun
 		   --trie--mapc--root --trie--mapc--seq
-		   &optional --trie--mapc--reverse)
+		   &optional --trie--mapc--reverse --trie--mapc--pfxfilter)
   ;; Apply TRIE--MAPC--FUNCTION to all elements in a trie beneath
   ;; TRIE--MAPC--ROOT, which should correspond to the sequence
-  ;; TRIE--MAPC--SEQ. TRIE--MAPC--FUNCTION is passed two arguments: the
-  ;; trie node itself and the sequence it corresponds to. It is applied
-  ;; in ascending order, or descending order if TRIE--MAPC--REVERSE is
-  ;; non-nil.
+  ;; TRIE--MAPC--SEQ.
+  ;;
+  ;; TRIE--MAPC--FUNCTION is passed two arguments: the trie node itself and
+  ;; the sequence it corresponds to. It is applied in ascending order, or
+  ;; descending order if TRIE--MAPC--REVERSE is non-nil.
+  ;;
+  ;; If supplied, TRIE--PFXFILTER is called with the sequence corresponding to
+  ;; a trie node. If it returns nil, the function is not applied to any
+  ;; elements below that node.
 
   ;; The absurd argument names are to lessen the likelihood of dynamical
   ;; scoping bugs caused by a supplied function binding a variable with
   ;; the same name as one of the arguments.
+  ;; FIXME: Not needed with lexical binding.
   (funcall
    --trie--mapc--mapfun
    (lambda (--trie--mapc--node)
@@ -937,13 +944,18 @@ also `trie-member-p', which does this for you.)"
 		  --trie--mapc--node
 		  --trie--mapc--seq)
        ;; internal node: append split value to seq and keep descending
-       (trie--mapc --trie--mapc--function
-		   --trie--mapc--mapfun
-		   --trie--mapc--node
-		   (trie--seq-append
-		    (copy-sequence --trie--mapc--seq)
-		    (trie--node-split --trie--mapc--node))
-		   --trie--mapc--reverse)))
+       (when (or (null --trie--mapc--pfxfilter)
+		 (funcall --trie--mapc--pfxfilter
+			  (trie--seq-append
+			   (copy-sequence --trie--mapc--seq)
+			   (trie--node-split --trie--mapc--node))))
+	 (trie--mapc --trie--mapc--function
+		     --trie--mapc--mapfun
+		     --trie--mapc--node
+		     (trie--seq-append (copy-sequence --trie--mapc--seq)
+				       (trie--node-split --trie--mapc--node))
+		     --trie--mapc--reverse
+		     --trie--mapc--pfxfilter))))
    ;; --TRIE--MAPC--MAPFUN target
    (trie--node-subtree --trie--mapc--root)
    --trie--mapc--reverse))
@@ -1121,6 +1133,7 @@ is more efficient."
 	      &optional
 	      (type 'vector)
 	      reverse
+	      pfxfilter
 	      &aux
 	      (comparison-function (trie--comparison-function trie))
 	      (lookupfun (trie--lookupfun trie))
@@ -1140,7 +1153,7 @@ is more efficient."
 			  stackcreatefun
 			  (trie--node-subtree (trie--root trie))
 			  reverse)))
-		  reverse
+		  reverse pfxfilter
 		  comparison-function lookupfun
 		  stackcreatefun stackpopfun stackemptyfun)))
 	      (pushed '())
@@ -1150,6 +1163,7 @@ is more efficient."
 	     (trie prefix
 	      &optional
 	      reverse
+	      pfxfilter
 	      &aux
 	      (comparison-function (trie--comparison-function trie))
 	      (lookupfun (trie--lookupfun trie))
@@ -1158,7 +1172,7 @@ is more efficient."
 	      (stackemptyfun (trie--stack-emptyfun trie))
 	      (repopulatefun #'trie--stack-repopulate)
 	      (store (trie--complete-stack-construct-store
-		      trie prefix reverse))
+		      trie prefix reverse pfxfilter))
 	      (pushed '())
 	      ))
 	    (:constructor
@@ -1166,6 +1180,7 @@ is more efficient."
 	     (trie regexp
 	      &optional
 	      reverse
+	      pfxfilter
 	      &aux
 	      (comparison-function (trie--comparison-function trie))
 	      (lookupfun (trie--lookupfun trie))
@@ -1174,7 +1189,7 @@ is more efficient."
 	      (stackemptyfun (trie--stack-emptyfun trie))
 	      (repopulatefun #'trie--regexp-stack-repopulate)
 	      (store (trie--regexp-stack-construct-store
-		      trie regexp reverse))
+		      trie regexp reverse pfxfilter))
 	      (pushed '())
 	      ))
 	    (:constructor
@@ -1182,6 +1197,7 @@ is more efficient."
 	     (trie string distance
 	      &optional
 	      reverse
+	      pfxfilter
 	      &aux
 	      (comparison-function (trie--comparison-function trie))
 	      (lookupfun (trie--lookupfun trie))
@@ -1190,7 +1206,7 @@ is more efficient."
 	      (stackemptyfun (trie--stack-emptyfun trie))
 	      (repopulatefun #'trie--fuzzy-match-stack-repopulate)
 	      (store (trie--fuzzy-match-stack-construct-store
-		      trie string distance reverse))
+		      trie string distance reverse pfxfilter))
 	      (pushed '())
 	      ))
 	    (:constructor
@@ -1198,6 +1214,7 @@ is more efficient."
 	     (trie prefix distance
 	      &optional
 	      reverse
+	      pfxfilter
 	      &aux
 	      (comparison-function (trie--comparison-function trie))
 	      (lookupfun (trie--lookupfun trie))
@@ -1206,16 +1223,17 @@ is more efficient."
 	      (stackemptyfun (trie--stack-emptyfun trie))
 	      (repopulatefun #'trie--fuzzy-complete-stack-repopulate)
 	      (store (trie--fuzzy-complete-stack-construct-store
-		      trie prefix distance reverse))
+		      trie prefix distance reverse pfxfilter))
 	      (pushed '())
 	      ))
 	    (:copier nil))
-  reverse comparison-function lookupfun
+  reverse pfxfilter
+  comparison-function lookupfun
   stackcreatefun stackpopfun stackemptyfun
   repopulatefun store pushed)
 
 
-(defun trie-stack (trie &optional type reverse)
+(defun trie-stack (trie &optional type reverse pfxfilter)
   "Return an object that allows TRIE to be accessed as a stack.
 
 The stack is sorted in \"lexicographic\" order, i.e. the order
@@ -1238,15 +1256,15 @@ constructing a real stack containing all the contents of the trie
 and using standard stack functions. As such, they can be useful
 in implementing efficient algorithms over tries. However, in
 cases where mapping functions `trie-mapc', `trie-mapcar' or
-`trie-mapf' would be sufficient, it may be better to use one of
-those instead."
+`trie-mapf' would be sufficient, it is better to use one of those
+instead."
   ;; convert trie from print-form if necessary
   (trie-transform-from-read-warn trie)
   ;; if stack functions aren't defined for trie type, throw error
   (if (not (functionp (trie--stack-createfun trie)))
       (error "Trie type does not support stack operations")
     ;; otherwise, create and initialise a stack
-    (trie--stack-create trie type reverse)))
+    (trie--stack-create trie type reverse pfxfilter)))
 
 
 (defun trie-stack-pop (trie-stack &optional nilflag)
@@ -1268,6 +1286,7 @@ element stored in the trie.)"
 	      (funcall (trie--stack-repopulatefun trie-stack)
 		       (trie--stack-store trie-stack)
 		       (trie--stack-reverse trie-stack)
+		       (trie--stack-pfxfilter trie-stack)
 		       (trie--stack-comparison-function trie-stack)
 		       (trie--stack-lookupfun trie-stack)
 		       (trie--stack-stackcreatefun trie-stack)
@@ -1309,8 +1328,9 @@ element stored in the trie.)"
 
 
 (defun trie--stack-repopulate
-  (store reverse _comparison-function _lookupfun
-	 stack-createfun stack-popfun stack-emptyfun)
+    (store reverse pfxfilter
+	   _comparison-function _lookupfun
+	   stack-createfun stack-popfun stack-emptyfun)
   ;; Recursively push children of the node at the head of STORE onto the
   ;; front of STORE, until a data node is reached.
 
@@ -1323,10 +1343,14 @@ element stored in the trie.)"
 	(setq store (cdr store)))
 
       (while (not (trie--node-data-p node))
-	(push
-	 (cons (trie--seq-append seq (trie--node-split node))
-	       (funcall stack-createfun (trie--node-subtree node) reverse))
-	 store)
+	(setq seq (trie--seq-append seq (trie--node-split node)))
+	;; push node onto stack if not pruned
+	(when (or (null pfxfilter) (funcall pfxfilter seq))
+	  (push
+	   (cons seq (funcall stack-createfun
+			      (trie--node-subtree node) reverse))
+	   store))
+	;; move to next child node in trie
 	(setq node (funcall stack-popfun (cdar store))
 	      seq (caar store))
 	(when (funcall stack-emptyfun (cdar store))
@@ -1342,7 +1366,7 @@ element stored in the trie.)"
 ;; terms of trie-stacks.
 
 (heap--when-generators
- (iter-defun trie-iter (trie &optional type reverse)
+ (iter-defun trie-iter (trie &optional type reverse pfxfilter)
    "Return a trie iterator object.
 
 Calling `iter-next' on this object will retrieve the next element
@@ -1356,11 +1380,16 @@ Optional argument TYPE \(one of the symbols `vector', `list' or
 defaulting to `vector'. \(If TYPE is string, it must be possible
 to apply `string' to individual elements of TRIE keys.\)
 
+The PFXFILTER argument sets a prefix filter function. If
+supplied, it is called with one argument: a sequence of the same
+type as PREFIX. If it returns nil, trie keys with that sequence
+as a prefix are omitted.
+
 Note that any modification to TRIE *immediately* invalidates all
 iterators created from TRIE before the modification \(in
 particular, calling `iter-next' will give unpredictable
 results\)."
-   (let ((stack (trie-stack trie type reverse)))
+   (let ((stack (trie-stack trie type reverse pfxfilter)))
      (while (not (trie-stack-empty-p stack))
        (iter-yield (trie-stack-pop stack))))))
 
@@ -1557,7 +1586,7 @@ results\)."
 ;;                          Completing
 
 (defun trie-complete
-  (trie prefix &optional rankfun maxnum reverse filter resultfun)
+  (trie prefix &optional rankfun maxnum reverse filter resultfun pfxfilter)
   "Return an alist containing all completions of PREFIX in TRIE
 along with their associated data, in the order defined by
 RANKFUN, defaulting to \"lexicographic\" order \(i.e. the order
@@ -1570,9 +1599,11 @@ elements of the type used to reference data in the trie. (If
 PREFIX is a string, it must be possible to apply `string' to
 individual elements of the sequences stored in the trie.) The
 completions returned in the alist will be sequences of the same
-type as KEY. If PREFIX is a list of sequences, completions of all
-sequences in the list are included in the returned alist. All
-sequences in the list must be of the same type.
+type as PREFIX.
+
+If PREFIX is a list of sequences, completions of all sequences in
+the list are included in the returned alist. All sequences in the
+list must be of the same type.
 
 The optional integer argument MAXNUM limits the results to the
 first MAXNUM completions. Otherwise, all completions are
@@ -1594,7 +1625,13 @@ RESULTFUN defines a function used to process results before
 adding them to the final result list. If specified, it should
 accept two arguments: a key and its associated data. Its return
 value is what gets added to the final result list, instead of the
-default key-data cons cell."
+default key-data cons cell.
+
+The PFXFILTER argument sets a prefix filter function. If
+supplied, it is called with one argument: a sequence of the same
+type as PREFIX. If it returns nil, all completions with that
+sequence as a prefix will be ignored. When PFXFILTER suffices, it
+is more efficient than using FILTER for the same purpose."
 
   ;; convert trie from print-form if necessary
   (trie-transform-from-read-warn trie)
@@ -1613,21 +1650,22 @@ default key-data cons cell."
 			  (trie--comparison-function trie))))))
 
   ;; accumulate completions
-    (trie--accumulate-results
-     rankfun maxnum reverse filter resultfun accumulator nil
-     (let (node)
-       (dolist (pfx prefix)
-	 (when (setq node (trie--node-find (trie--root trie) pfx
-					   (trie--lookupfun trie)))
-	   (trie--mapc
-	    (lambda (node seq)
-	      (funcall accumulator seq (trie--node-data node)))
-	    (trie--mapfun trie) node pfx
-	    (if maxnum reverse (not reverse))))))))
+  (trie--accumulate-results
+   rankfun maxnum reverse filter resultfun accumulator nil
+   (let (node)
+     (dolist (pfx prefix)
+       (when (setq node (trie--node-find (trie--root trie) pfx
+					 (trie--lookupfun trie)))
+	 (trie--mapc
+	  (lambda (node seq)
+	    (funcall accumulator seq (trie--node-data node)))
+	  (trie--mapfun trie) node pfx
+	  (if maxnum reverse (not reverse))
+	  pfxfilter))))))
 
 
 
-(defun trie-complete-stack (trie prefix &optional reverse)
+(defun trie-complete-stack (trie prefix &optional reverse pfxfilter)
   "Return an object that allows completions of PREFIX to be accessed
 as if they were a stack.
 
@@ -1646,6 +1684,11 @@ PREFIX is a list of sequences, they must all be of the same
 type. In this case, completions of all sequences in the list are
 included in the stack.
 
+The PFXFILTER argument sets a prefix filter function. If
+supplied, it is called with one argument: a sequence of the same
+type as PREFIX. If it returns nil, completions with that sequence
+as a prefix are omitted from the stack.
+
 Note that any modification to TRIE *immediately* invalidates all
 trie-stacks created before the modification \(in particular,
 calling `trie-stack-pop' will give unpredictable results\).
@@ -1662,10 +1705,10 @@ instead."
   (if (not (functionp (trie--stack-createfun trie)))
       (error "Trie type does not support stack operations")
     ;; otherwise, create and initialise a stack
-    (trie--complete-stack-create trie prefix reverse)))
+    (trie--complete-stack-create trie prefix reverse pfxfilter)))
 
 
-(defun trie--complete-stack-construct-store (trie prefix reverse)
+(defun trie--complete-stack-construct-store (trie prefix reverse pfxfilter)
   ;; Construct store for completion stack based on TRIE.
   (let (store node)
     (if (or (atom prefix)
@@ -1685,7 +1728,7 @@ instead."
 				 reverse))
 	      store)))
     (trie--stack-repopulate
-     store reverse
+     store reverse pfxfilter
      (trie--comparison-function trie)
      (trie--lookupfun trie)
      (trie--stack-createfun trie)
@@ -1694,7 +1737,7 @@ instead."
 
 
 (heap--when-generators
- (iter-defun trie-complete-iter (trie prefix &optional reverse)
+ (iter-defun trie-complete-iter (trie prefix &optional reverse pfxfilter)
    "Return an iterator object for completions of PREFIX in TRIE.
 
 Calling `iter-next' on this object will retrieve the next
@@ -1712,11 +1755,16 @@ is a list of sequences, they must all be of the same type. In
 this case, the iterator yields completions of all sequences in
 the list.
 
+The PFXFILTER argument sets a prefix filter function. If
+supplied, it is called with one argument: a sequence of the same
+type as PREFIX. If it returns nil, completions with that sequence
+as a prefix are omitted.
+
 Note that any modification to TRIE *immediately* invalidates all
 iterators created from TRIE before the modification \(in
 particular, calling `iter-next' will give unpredictable
 results\)."
-   (let ((stack (trie-complete-stack trie prefix reverse)))
+   (let ((stack (trie-complete-stack trie prefix reverse pfxfilter)))
      (while (not (trie-stack-empty-p stack))
        (iter-yield (trie-stack-pop stack))))))
 
@@ -1727,7 +1775,7 @@ results\)."
 ;;                        Regexp search
 
 (defun trie-regexp-search
-  (trie regexp &optional rankfun maxnum reverse filter resultfun)
+  (trie regexp &optional rankfun maxnum reverse filter resultfun pfxfilter)
   "Return an alist containing all matches for REGEXP in TRIE
 along with their associated data, in the order defined by
 RANKFUN, defaulting to \"lexicographic\" order \(i.e. the order
@@ -1796,7 +1844,13 @@ RESULTFUN defines a function used to process results before
 adding them to the final result list. If specified, it should
 accept two arguments, of the same form as those for FILTER (see
 above). Its return value is what gets added to the final result
-list, instead of the default key-data cons cell."
+list, instead of the default key-data cons cell.
+
+The PFXFILTER argument sets a prefix filter function. If
+supplied, it is called with one argument: a sequence of the same
+type as REGEXP. If it returns nil, all matches with that
+sequence as a prefix will be ignored. When PFXFILTER suffices, it
+is more efficient than using FILTER for the same purpose."
 
   ;; convert trie from print-form if necessary
   (trie-transform-from-read-warn trie)
@@ -1810,6 +1864,7 @@ list, instead of the default key-data cons cell."
 				    (trie--comparison-function trie)))
     (cond ((stringp regexp) "") ((listp regexp) ()) (t []))  0
     (or (and maxnum reverse) (and (not maxnum) (not reverse)))
+    pfxfilter
     ;; FIXME: Is this a case where it would pay to replace these arguments
     ;;        with dynamically-scoped variables, to save stack space during
     ;;        the recursive calls to `trie--do-regexp-search'?  Alternatively,
@@ -1823,7 +1878,7 @@ list, instead of the default key-data cons cell."
 
 
 (defun trie--do-regexp-search
-  (--trie--regexp-search--node tNFA seq pos reverse
+  (--trie--regexp-search--node tNFA seq pos reverse pfxfilter
 			       cmpfun lookupfun mapfun accumulator)
   ;; Search everything below the node --TRIE--REGEXP-SEARCH-NODE for
   ;; matches to the regexp encoded in tNFA. SEQ is the sequence
@@ -1853,44 +1908,44 @@ list, instead of the default key-data cons cell."
 
    ;; wildcard transition: map over all nodes in subtree
    ((tNFA-wildcard-p tNFA)
-    (let (state)
       (funcall mapfun
 	       (lambda (node)
 		 (unless (trie--node-data-p node)
-		     ;; (when (tNFA-match-p tNFA)
-		     ;;   (setq groups (tNFA-group-data tNFA))
-		     ;;   (funcall accumulator
-		     ;; 		(if groups (cons seq groups) seq)
-		     ;; 		(trie--node-data node)))
-		   (when (setq state (tNFA-next-state
-				      tNFA (trie--node-split node) pos))
+		   (let (state)
+		     (when (and (or (null pfxfilter)
+				    (funcall pfxfilter
+					     (trie--seq-append
+					      seq (trie--node-split node))))
+				(setq state (tNFA-next-state
+					     tNFA (trie--node-split node) pos)))
 		     (trie--do-regexp-search
 		      node state
 		      (trie--seq-append seq (trie--node-split node))
 		      (1+ pos)
-		      reverse cmpfun lookupfun mapfun accumulator))))
+		      reverse pfxfilter cmpfun lookupfun mapfun accumulator)))))
 	       (trie--node-subtree --trie--regexp-search--node)
-	       reverse)))
+	       reverse))
 
    (t ;; no wildcard transition: loop over all transitions
-    ;; rename function to mitigate against dynamic scoping bugs
+    ;; Rename function to mitigate against dynamic scoping bugs
     ;; FIXME: not needed with lexical scoping
     (let ((--trie--do-regexp-search--cmpfun cmpfun)
 	  node state)
       (dolist (chr (sort (tNFA-transitions tNFA)
 			 (if reverse
 			     (lambda (a b)
-			       (funcall
-				--trie--do-regexp-search--cmpfun
-				b a))
+			       (funcall --trie--do-regexp-search--cmpfun
+					b a))
 			   cmpfun)))
-	(when (and (setq node (trie--node-find
+	(when (and (or (null pfxfilter)
+		       (funcall pfxfilter (trie--seq-append seq chr)))
+		   (setq node (trie--node-find
 			       --trie--regexp-search--node
 			       (vector chr) lookupfun))
 		   (setq state (tNFA-next-state tNFA chr pos)))
 	  (trie--do-regexp-search
 	   node state (trie--seq-append seq chr) (1+ pos)
-	   reverse cmpfun lookupfun mapfun accumulator))))))
+	   reverse pfxfilter cmpfun lookupfun mapfun accumulator))))))
 
   ;; if NFA has matched and we're accumulating in reverse order, check if
   ;; trie contains current string
@@ -1904,8 +1959,7 @@ list, instead of the default key-data cons cell."
 		 (trie--node-data node))))))
 
 
-
-(defun trie-regexp-stack (trie regexp &optional reverse)
+(defun trie-regexp-stack (trie regexp &optional reverse pfxfilter)
   "Return an object that allows matches to REGEXP to be accessed
 as if they were a stack.
 
@@ -1937,7 +1991,12 @@ each match \(as returned by a call to `trie-stack-pop'\) is no
 longer just a key. Instead, it is a list whose first element is
 the matching key, and whose remaining elements are cons cells
 whose cars and cdrs give the start and end indices of the
-elements that matched the corresponding groups, in order."
+elements that matched the corresponding groups, in order.
+
+The PFXFILTER argument sets a prefix filter function. If
+supplied, it is called with one argument: a sequence of the same
+type as PREFIX. If it returns nil, matches with that sequence
+as a prefix are omitted from the stack."
 
   ;; convert trie from print-form if necessary
   (trie-transform-from-read-warn trie)
@@ -1945,11 +2004,11 @@ elements that matched the corresponding groups, in order."
   (if (not (functionp (trie--stack-createfun trie)))
       (error "Trie type does not support stack operations")
     ;; otherwise, create and initialise a regexp stack
-    (trie--regexp-stack-create trie regexp reverse)))
+    (trie--regexp-stack-create trie regexp reverse pfxfilter)))
 
 
 (defun trie--regexp-stack-construct-store
-  (trie regexp &optional reverse)
+  (trie regexp &optional reverse pfxfilter)
   ;; Construct store for regexp stack based on TRIE.
   (let ((seq (cond ((stringp regexp) "") ((listp regexp) ()) (t [])))
 	store)
@@ -1960,7 +2019,7 @@ elements that matched the corresponding groups, in order."
 		0)
 	  store)
     (trie--regexp-stack-repopulate
-     store reverse
+     store reverse pfxfilter
      (trie--comparison-function trie)
      (trie--lookupfun trie)
      (trie--stack-createfun trie)
@@ -1969,7 +2028,7 @@ elements that matched the corresponding groups, in order."
 
 
 (defun trie--regexp-stack-repopulate
-  (store reverse comparison-function lookupfun
+  (store reverse pfxfilter comparison-function lookupfun
 	 stack-createfun stack-popfun stack-emptyfun)
   ;; Recursively push matching children of the node at the head of STORE
   ;; onto STORE, until a data node is reached. REVERSE is the usual
@@ -2019,7 +2078,9 @@ elements that matched the corresponding groups, in order."
 				      (funcall
 				       --trie--regexp-stack-repopulate--cmpfun
 				       b a)))))
-		  (when (and (setq n (trie--node-find
+		  (when (and (or (null pfxfilter)
+			      	 (funcall pfxfilter (trie--seq-append seq chr)))
+			     (setq n (trie--node-find
 				      node (vector chr) lookupfun))
 			     (setq s (tNFA-next-state state chr pos)))
 		    (push (list (trie--seq-append seq chr) n s (1+ pos))
@@ -2046,16 +2107,21 @@ elements that matched the corresponding groups, in order."
 		      nil)  ; return nil to exit loop
 		  ;; normal node: add it to the stack and keep
 		  ;; repopulating
-		  (push (list
-			 (trie--seq-append seq (trie--node-split node))
-			 node state (1+ pos))
-			store)))))
-	   ))))
+		  (when (or (null pfxfilter)
+			    (funcall pfxfilter
+				     (trie--seq-append
+				      seq (trie--node-split node))))
+		    (push (list
+			   (trie--seq-append seq (trie--node-split node))
+			   node state (1+ pos))
+			  store))
+		  t)  ; return t to keep looping
+		)))))))
   store)
 
 
 (heap--when-generators
- (iter-defun trie-regexp-iter (trie regexp &optional reverse)
+ (iter-defun trie-regexp-iter (trie regexp &optional reverse pfxfilter)
    "Return an iterator object for REGEXP matches in TRIE.
 
 Calling `iter-next' on this object will retrieve the next match
@@ -2088,11 +2154,16 @@ matching key, and whose remaining elements are cons cells whose
 cars and cdrs give the start and end indices of the elements that
 matched the corresponding groups, in order.
 
+The PFXFILTER argument sets a prefix filter function. If
+supplied, it is called with one argument: a sequence of the same
+type as PREFIX. If it returns nil, regexp matches with that
+sequence as a prefix are omitted.
+
 Note that any modification to TRIE *immediately* invalidates all
 iterators created from TRIE before the modification \(in
 particular, calling `iter-next' will give unpredictable
 results\)."
-   (let ((stack (trie-regexp-stack trie regexp reverse)))
+   (let ((stack (trie-regexp-stack trie regexp reverse pfxfilter)))
      (while (not (trie-stack-empty-p stack))
        (iter-yield (trie-stack-pop stack))))))
 
@@ -2212,7 +2283,8 @@ See also `Lewenstein-distance'."
 
 
 (defun trie-fuzzy-match
-  (trie string distance &optional rankfun maxnum reverse filter resultfun)
+    (trie string distance &optional rankfun maxnum reverse
+	  filter resultfun pfxfilter)
   "Return matches for STRING in TRIE within Lewenstein DISTANCE
 \(edit distance\) of STRING along with their associated data, in
 the order defined by RANKFUN, defaulting to \"lexicographic\"
@@ -2266,7 +2338,13 @@ RESULTFUN defines a function used to process results before
 adding them to the final result list. If specified, it should
 accept two arguments: a (KEY . DIST) cons cell, and DATA. Its
 return value is what gets added to the final result list, instead
-of the default key-dist-data list."
+of the default key-dist-data list.
+
+The PFXFILTER argument sets a prefix filter function. If
+supplied, it is called with one argument: a sequence of the same
+type as STRING. If it returns nil, all matches with that sequence
+as a prefix will be ignored. When PFXFILTER suffices, it is more
+efficient than using FILTER for the same purpose."
 
   ;; convert trie from print-form if necessary
   (trie-transform-from-read-warn trie)
@@ -2290,7 +2368,7 @@ of the default key-dist-data list."
     (if (or (atom string)
 	    (and (listp string) (not (sequencep (car string)))))
 	(setq string (list string))
-      ;; sort list of prefixes if sorting completions lexicographicly
+      ;; sort list of strings if sorting matches lexicographicly
       (when (null rankfun)
 	(setq string
 	      (sort string (trie-construct-sortfun
@@ -2309,7 +2387,7 @@ of the default key-dist-data list."
 		   (cond ((stringp str) "") ((listp str) ()) (t []))
 		   ;; FIXME: Would it pay to replace these arguments with
 		   ;;        dynamically-scoped variables, to save stack space?
-		   str distance (if maxnum reverse (not reverse))
+		   str distance (if maxnum reverse (not reverse)) pfxfilter
 		   (trie--comparison-function trie)
 		   equalfun
 		   (trie--lookupfun trie)
@@ -2322,7 +2400,7 @@ of the default key-dist-data list."
 		(if maxnum reverse (not reverse)))))))
 
 
-(defun trie--do-fuzzy-match (node row seq string distance reverse
+(defun trie--do-fuzzy-match (node row seq string distance reverse pfxfilter
 				  cmpfun equalfun lookupfun mapfun accumulator
 				  ranked-by-dist maxnum stats)
   ;; Search everything below NODE for matches within Lewenstein distance
@@ -2342,32 +2420,34 @@ of the default key-dist-data list."
 	       (>= (aref stats 0) maxnum)
 	       (throw 'trie--accumulate-done nil))))
 
-    ;; build next row of Lewenstein table
-    (setq row (Lewenstein--next-row
-	       row string (trie--node-split node) equalfun)
-	  seq (trie--seq-append seq (trie--node-split node)))
+    (setq seq (trie--seq-append seq (trie--node-split node)))
+    (when (or (null pfxfilter) (funcall pfxfilter seq))
+      ;; build next row of Lewenstein table
+      (setq row (Lewenstein--next-row
+		 row string (trie--node-split node) equalfun))
 
-    ;; MIN = minimum possible prefix cost for any continuation of SEQ
-    ;; NUM = number of guaranteed-better matches already accumulated
-    (let* ((min (apply #'min (append row nil)))
-	   (num (and ranked-by-dist
-		     (apply #'+ (append (substring stats 0 min) '())))))
-      ;; skip subtree if we already have enough guaranteed-better completions
-      (when (or (null ranked-by-dist) (< num maxnum))
-	;; as long as some row entry is <= DISTANCE, recursively search below NODE
-	(when (<= min distance)
-	  (funcall mapfun
-		   (lambda (n)
-		     (trie--do-fuzzy-match
-		      n row seq string distance reverse
-		      cmpfun equalfun lookupfun mapfun accumulator
-		      ranked-by-dist maxnum stats))
-		   (trie--node-subtree node)
-		   reverse))))))
+      ;; MIN = minimum possible prefix cost for any continuation of SEQ
+      ;; NUM = number of guaranteed-better matches already accumulated
+      (let* ((min (apply #'min (append row nil)))
+	     (num (and ranked-by-dist
+		       (apply #'+ (append (substring stats 0 min) '())))))
+	;; skip subtree if we already have enough guaranteed-better completions
+	(when (or (null ranked-by-dist) (< num maxnum))
+	  ;; as long as some row entry is <= DISTANCE, recursively search below NODE
+	  (when (<= min distance)
+	    (funcall mapfun
+		     (lambda (n)
+		       (trie--do-fuzzy-match
+			n row seq string distance reverse pfxfilter
+			cmpfun equalfun lookupfun mapfun accumulator
+			ranked-by-dist maxnum stats))
+		     (trie--node-subtree node)
+		     reverse)))))))
 
 
 
-(defun trie-fuzzy-match-stack (trie string distance &optional reverse)
+(defun trie-fuzzy-match-stack (trie string distance
+				    &optional reverse pfxfilter)
   "Return an object that allows fuzzy matches to be accessed
 as if they were a stack.
 
@@ -2391,7 +2471,13 @@ as STRING.
 
 DISTANCE is a positive integer. The fuzzy matches in the stack
 will be within Lewenstein distance \(edit distance\) DISTANCE of
-STRING."
+STRING.
+
+The PFXFILTER argument sets a prefix filter function. If
+supplied, it is called with one argument: a sequence of the same
+type as PREFIX. If it returns nil, matches with that sequence as
+a prefix are omitted from the stack."
+
   ;; convert trie from print-form if necessary
   (trie-transform-from-read-warn trie)
   ;; if stack functions aren't defined for trie type, throw error
@@ -2403,11 +2489,11 @@ STRING."
    ((= distance 0)
     (trie--stack-create trie string reverse))
    (t ;; otherwise, create and initialise a fuzzy match stack
-    (trie--fuzzy-match-stack-create trie string distance reverse))))
+    (trie--fuzzy-match-stack-create trie string distance reverse pfxfilter))))
 
 
 (defun trie--fuzzy-match-stack-construct-store
-    (trie string distance &optional reverse)
+    (trie string distance &optional reverse pfxfilter)
   ;; Construct store for fuzzy stack based on TRIE.
   (let (seq store)
     (if (or (atom string)
@@ -2420,25 +2506,25 @@ STRING."
 		   (trie--comparison-function trie)
 		   (not reverse)))))
     (dolist (str string)
-      (setq seq (cond ((stringp string) "") ((listp string) ()) (t [])))
+      (setq seq (cond ((stringp str) "") ((listp str) ()) (t [])))
       (push (list seq
 		  (funcall (trie--stack-createfun trie)
 			   (trie--node-subtree (trie--root trie))
 			   reverse)
 		  str distance
-		  (apply #'vector (number-sequence 0 (length string))))
-	    store)
-      (trie--fuzzy-match-stack-repopulate
-       store reverse
-       (trie--comparison-function trie)
-       (trie--lookupfun trie)
-       (trie--stack-createfun trie)
-       (trie--stack-popfun trie)
-       (trie--stack-emptyfun trie)))))
+		  (apply #'vector (number-sequence 0 (length str))))
+	    store))
+    (trie--fuzzy-match-stack-repopulate
+     store reverse pfxfilter
+     (trie--comparison-function trie)
+     (trie--lookupfun trie)
+     (trie--stack-createfun trie)
+     (trie--stack-popfun trie)
+     (trie--stack-emptyfun trie))))
 
 
 (defun trie--fuzzy-match-stack-repopulate
-  (store reverse comparison-function _lookupfun
+  (store reverse pfxfilter comparison-function _lookupfun
 	 stack-createfun stack-popfun stack-emptyfun)
   ;; Recursively push matching children of the node at the head of STORE
   ;; onto STORE, until a data node is reached. REVERSE is the usual
@@ -2449,7 +2535,8 @@ STRING."
     (let ((equalfun (trie--construct-equality-function comparison-function))
 	  nextrow)
 
-      (destructuring-bind (seq node string distance row) (car store)
+      (destructuring-bind (seq node string distance row)
+	  (car store)
 	(setq node (funcall stack-popfun node))
 	(when (funcall stack-emptyfun (nth 1 (car store)))
 	  ;; using (pop store) here produces irritating compiler warnings
@@ -2467,7 +2554,11 @@ STRING."
 			   row string (trie--node-split node) equalfun))
 	    ;; push children of non-data nodes whose SEQ is less than DISTANCE
 	    ;; onto stack
-	    (when (<= (apply #'min (append row nil)) distance)
+	    (when (and (<= (apply #'min (append row nil)) distance)
+		       (or (null pfxfilter)
+			   (funcall pfxfilter
+				    (trie--seq-append
+				     seq (trie--node-split node)))))
 	      (push
 	       (list (trie--seq-append seq (trie--node-split node))
 		     (funcall stack-createfun
@@ -2493,7 +2584,8 @@ STRING."
 
 
 (heap--when-generators
- (iter-defun trie-fuzzy-match-iter (trie string distance &optional reverse)
+ (iter-defun trie-fuzzy-match-iter (trie string distance
+					 &optional reverse pfxfilter)
    "Return an iterator object for fuzzy matches to STRING in TRIE.
 
 Calling `iter-next' on this object will return the next match
@@ -2515,15 +2607,21 @@ elements of the keys stored in the trie. The KEYs in the matches
 returned by `iter-next' will be sequences of the same type as
 STRING.
 
-DISTANCE is a positive integer. The fuzzy matches in the stack
-will be within Lewenstein distance \(edit distance\) DISTANCE of
-STRING.
+DISTANCE is a positive integer. The fuzzy matches returned by
+`iter-next' will be within Lewenstein distance \(edit distance\)
+DISTANCE of STRING.
+
+The PFXFILTER argument sets a prefix filter function. If
+supplied, it is called with one argument: a sequence of the same
+type as PREFIX. If it returns nil, fuzzy matches with that
+sequence as a prefix are omitted.
 
 Note that any modification to TRIE *immediately* invalidates all
 iterators created from TRIE before the modification \(in
 particular, calling `iter-next' will give unpredictable
 results\)."
-   (let ((stack (trie-fuzzy-match-stack trie string distance reverse)))
+   (let ((stack (trie-fuzzy-match-stack trie string distance
+					reverse pfxfilter)))
      (while (not (trie-stack-empty-p stack))
        (iter-yield (trie-stack-pop stack))))))
 
@@ -2534,7 +2632,8 @@ results\)."
 ;;                        Fuzzy completing
 
 (defun trie-fuzzy-complete
-  (trie prefix distance &optional rankfun maxnum reverse filter resultfun)
+    (trie prefix distance &optional rankfun maxnum reverse
+	  filter resultfun pfxfilter)
   "Return completions of prefixes within Lewenstein DISTANCE of PREFIX
 along with their associated data, in the order defined by
 RANKFUN, defaulting to \"lexicographic\" order \(i.e. the order
@@ -2612,7 +2711,13 @@ RESULTFUN defines a function used to process results before
 adding them to the final result list. If specified, it should
 accept two arguments: a \(KEY DIST PFXLEN\) list, and DATA. Its
 return value is what gets added to the final result list, instead
-of the default key-dist-pfxlen-data list."
+of the default key-dist-pfxlen-data list.
+
+The PFXFILTER argument sets a prefix filter function. If
+supplied, it is called with one argument: a sequence of the same
+type as PREFIX. If it returns nil, all completions with that
+sequence as a prefix will be ignored. When PFXFILTER suffices, it
+is more efficient than using FILTER for the same purpose."
 
   ;; convert trie from print-form if necessary
   (trie-transform-from-read-warn trie)
@@ -2661,12 +2766,12 @@ of the default key-dist-pfxlen-data list."
 		    (trie--do-fuzzy-complete
 		     node
 		     (apply #'vector (number-sequence 0 (length pfx)))
-		     (cond ((> length 0) string)
+		     (cond (length string)
 			   ((stringp pfx) "") ((listp pfx) ()) (t []))
 		     (length pfx) (length string)
 		     ;; FIXME: Would it pay to replace these arguments with
 		     ;;        dynamically-scoped variables, to save stack space?
-		     pfx distance (if maxnum reverse (not reverse))
+		     pfx distance (if maxnum reverse (not reverse)) pfxfilter
 		     (trie--comparison-function trie)
 		     equalfun
 		     (trie--lookupfun trie)
@@ -2681,7 +2786,7 @@ of the default key-dist-pfxlen-data list."
 
 
 (defun trie--do-fuzzy-complete (node row seq pfxcost pfxlen
-				prefix distance reverse
+				prefix distance reverse pfxfilter
 				cmpfun equalfun lookupfun mapfun
 				accumulator ranked-by-dist maxnum stats)
   ;; Search everything below NODE for completions of prefixes within
@@ -2701,52 +2806,55 @@ of the default key-dist-pfxlen-data list."
 	     (>= (aref stats 0) maxnum)
 	     (throw 'trie--accumulate-done nil)))
 
-    ;; build next row of Lewenstein table
-    (setq row (Lewenstein--next-row
-	       row prefix (trie--node-split node) equalfun)
-	  seq (trie--seq-append seq (trie--node-split node)))
-    (when (<= (aref row (1- (length row))) pfxcost)
-      (setq pfxcost (aref row (1- (length row)))
-	    pfxlen  (length seq)))
+    (setq seq (trie--seq-append seq (trie--node-split node)))
+    (when (or (null pfxfilter) (funcall pfxfilter seq))
+      ;; build next row of Lewenstein table
+      (setq row (Lewenstein--next-row
+		 row prefix (trie--node-split node) equalfun))
+      (when (<= (aref row (1- (length row))) pfxcost)
+	(setq pfxcost (aref row (1- (length row)))
+	      pfxlen  (length seq)))
 
-    ;; MIN = minimum possible prefix cost for any continuation of SEQ
-    ;; NUM = number of guaranteed-better completions already accumulated
-    (let* ((min (apply #'min (append row nil)))
-	   (num (and ranked-by-dist
-		     (apply #'+ (append (substring stats 0 (min pfxcost min))
-					'())))))
-      ;; skip subtree if we already have enough guaranteed-better completions
-      (when (or (null ranked-by-dist) (< num maxnum))
-	(cond
-	 ;; if there's a prefix of current SEQ within DISTANCE of PREFIX and
-	 ;; no ROW entry is less than this, then we're not going to find a
-	 ;; better prefix, so accumulate all completions below NODE
-	 ((and (<= pfxcost distance) (> min pfxcost))
-	  (trie--mapc
-	   (lambda (n s)
-     	     (funcall accumulator (list s pfxcost pfxlen) (trie--node-data n))
-	     (and stats
-		  (incf (aref stats pfxcost))
-		  (eq ranked-by-dist 'dist-only)
-		  (>= (aref stats 0) maxnum)
-		  (throw 'trie--accumulate-done nil)))
-	   mapfun node seq reverse))
+      ;; MIN = minimum possible prefix cost for any continuation of SEQ
+      ;; NUM = number of guaranteed-better completions already accumulated
+      (let* ((min (apply #'min (append row nil)))
+	     (num (and ranked-by-dist
+		       (apply #'+ (append (substring stats 0 (min pfxcost min))
+					  '())))))
+	;; skip subtree if we already have enough guaranteed-better completions
+	(when (or (null ranked-by-dist) (< num maxnum))
+	  (cond
+	   ;; if there's a prefix of current SEQ within DISTANCE of PREFIX and
+	   ;; no ROW entry is less than this, then we're not going to find a
+	   ;; better prefix, so accumulate all completions below NODE
+	   ((and (<= pfxcost distance) (> min pfxcost))
+	    (trie--mapc
+	     (lambda (n s)
+     	       (funcall accumulator (list s pfxcost pfxlen) (trie--node-data n))
+	       (and stats
+		    (incf (aref stats pfxcost))
+		    (eq ranked-by-dist 'dist-only)
+		    (>= (aref stats 0) maxnum)
+		    (throw 'trie--accumulate-done nil)))
+	     mapfun node seq reverse pfxfilter))
 
-	 ;; as long as some ROW entry is <= DISTANCE, recursively search below NODE
-	 ((<= min distance)
-	  (funcall mapfun
-		   (lambda (n)
-		     (trie--do-fuzzy-complete
-		      n row seq pfxcost pfxlen prefix distance reverse
-		      cmpfun equalfun lookupfun mapfun accumulator
-		      ranked-by-dist maxnum stats))
-		   (trie--node-subtree node)
-		   reverse))
-	 )))))
+	   ;; as long as some ROW entry is <= DISTANCE, recursively search below NODE
+	   ((<= min distance)
+	    (funcall mapfun
+		     (lambda (n)
+		       (trie--do-fuzzy-complete
+			n row seq pfxcost pfxlen prefix
+			distance reverse pfxfilter
+			cmpfun equalfun lookupfun mapfun accumulator
+			ranked-by-dist maxnum stats))
+		     (trie--node-subtree node)
+		     reverse))
+	   ))))))
 
 
 
-(defun trie-fuzzy-complete-stack (trie prefix distance &optional reverse)
+(defun trie-fuzzy-complete-stack (trie prefix distance
+				       &optional reverse pfxfilter)
   "Return an object that allows fuzzy completions to be accessed
 as if they were a stack.
 
@@ -2771,7 +2879,12 @@ elements will be sequences of the same type as PREFIX.
 DISTANCE is a positive integer. The fuzzy completions in the
 stack will have prefixes within Lewenstein distance \(edit
 distance\) DISTANCE of PREFIX. (Note that DISTANCE=0 will not
-give meaningful results; use `trie-complete-stack' instead.)"
+give meaningful results; use `trie-complete-stack' instead.)
+
+The PFXFILTER argument sets a prefix filter function. If
+supplied, it is called with one argument: a sequence of the same
+type as PREFIX. If it returns nil, completions with that sequence
+as a prefix are omitted from the stack."
   ;; convert trie from print-form if necessary
   (trie-transform-from-read-warn trie)
   (cond
@@ -2783,11 +2896,11 @@ give meaningful results; use `trie-complete-stack' instead.)"
    ((and (integerp distance) (= distance 0))
     (trie--complete-stack-create trie prefix reverse))
    (t ;; otherwise, create and initialise a fuzzy stack
-    (trie--fuzzy-complete-stack-create trie prefix distance reverse))))
+    (trie--fuzzy-complete-stack-create trie prefix distance reverse pfxfilter))))
 
 
 (defun trie--fuzzy-complete-stack-construct-store
-    (trie prefix distance &optional reverse)
+    (trie prefix distance &optional reverse pfxfilter)
   ;; Construct store for fuzzy completion stack based on TRIE.
   (let ((seq (cond ((stringp prefix) "") ((listp prefix) ()) (t [])))
 	(node (trie--root trie))
@@ -2809,7 +2922,7 @@ give meaningful results; use `trie-complete-stack' instead.)"
 		  (length prefix) 0)  ; pfxcost pfxlen
 	    store)
       (trie--fuzzy-complete-stack-repopulate
-       store reverse
+       store reverse pfxfilter
        (trie--comparison-function trie)
        (trie--lookupfun trie)
        (trie--stack-createfun trie)
@@ -2818,12 +2931,12 @@ give meaningful results; use `trie-complete-stack' instead.)"
 
 
 (defun trie--fuzzy-complete-stack-repopulate
-  (store reverse comparison-function _lookupfun
+  (store reverse pfxfilter comparison-function _lookupfun
 	 stack-createfun stack-popfun stack-emptyfun)
-  ;; Recursively push matching children of the node at the head of STORE
-  ;; onto STORE, until a data node is reached. REVERSE is the usual
-  ;; query argument, and the remaining arguments are the corresponding
-  ;; trie functions.
+  ;; Recursively push matching children of the node at the head of STORE onto
+  ;; STORE, until a data node is reached. REVERSE and PFXFILTER are the usual
+  ;; query argument, and the remaining arguments are the corresponding trie
+  ;; functions.
 
   (when store
     (let ((equalfun (trie--construct-equality-function comparison-function)))
@@ -2846,11 +2959,14 @@ give meaningful results; use `trie-complete-stack' instead.)"
 				  (<= pfxcost distance))
 			      )))
 	   ;; drop data nodes whose prefix cost is greater than DISTANCE
-	  (unless (trie--node-data-p node)
+	  (when (and (not (trie--node-data-p node))
+		     (or (null pfxfilter)
+			 (funcall pfxfilter
+				  (setq seq (trie--seq-append
+					     seq (trie--node-split node))))))
 	    ;; build next row of Lewenstein table
 	    (setq row (Lewenstein--next-row
-		       row prefix (trie--node-split node) equalfun)
-		  seq (trie--seq-append seq (trie--node-split node)))
+		       row prefix (trie--node-split node) equalfun))
 	    (when (<= (aref row (1- (length row))) pfxcost)
 	      (setq pfxcost (aref row (1- (length row)))
 		    pfxlen  (length seq)))
@@ -2908,7 +3024,8 @@ give meaningful results; use `trie-complete-stack' instead.)"
 
 
 (heap--when-generators
- (iter-defun trie-fuzzy-complete-iter (trie prefix distance &optional reverse)
+ (iter-defun trie-fuzzy-complete-iter (trie prefix distance
+					    &optional reverse pfxfilter)
    "Return an iterator object for fuzzy matches of STRING in TRIE.
 
 Calling `iter-next' on this object will return the next match
@@ -2935,11 +3052,17 @@ DISTANCE is a positive integer. The fuzzy completions returned by
 `iter-next' will have prefixes within Lewenstein distance \(edit
 distance\) DISTANCE of PREFIX.
 
+The PFXFILTER argument sets a prefix filter function. If
+supplied, it is called with one argument: a sequence of the same
+type as PREFIX. If it returns nil, fuzzy completions with that
+sequence as a prefix are omitted.
+
 Note that any modification to TRIE *immediately* invalidates all
 iterators created from TRIE before the modification \(in
 particular, calling `iter-next' will give unpredictable
 results\)."
-   (let ((stack (trie-fuzzy-complete-stack trie prefix distance reverse)))
+   (let ((stack (trie-fuzzy-complete-stack trie prefix distance
+					   reverse pfxfilter)))
      (while (not (trie-stack-empty-p stack))
        (iter-yield (trie-stack-pop stack))))))
 
@@ -2955,7 +3078,7 @@ results\)."
 
 ;; We advise the `edebug-prin1' and `edebug-prin1-to-string' functions
 ;; (actually, aliases) so that they print "#<trie>" instead of the full
-;; print form for tries.
+;; print form for tries. Similarly for trie-stacks.
 ;;
 ;; This is because, if left to its own devices, edebug hangs for ages
 ;; whilst printing large tries, and you either have to wait for a *very*
@@ -2970,9 +3093,6 @@ results\)."
 ;; anyway, we don't lose much by doing this. If you *really* want to
 ;; print tries in full whilst edebugging, despite this warning, disable
 ;; the advice.
-;;
-;; FIXME: We should probably use the `cust-print' features instead of advice
-;; here.
 
 
 (eval-when-compile
@@ -2985,9 +3105,13 @@ results\)."
 (defun trie--node-prin1 (_trie stream)
   (princ "#<trie>" stream))
 
+(defun trie--stack-prin1 (_trie stream)
+  (princ "#<trie-stack>" stream))
+
 (defun trie--edebug-pretty-print (object)
   (cond
    ((trie-p object) "#<trie>")
+   ((trie--stack-p object) "#<trie-stack>")
    ((and (trie--node-p object) (cl-struct-p (trie--node-subtree object)))
     "#<trie--node>")
    ((null object) "nil")
@@ -3017,31 +3141,37 @@ results\)."
 ;; 	      "]")))
    ))
 
+
 (when (fboundp 'cl-print-object)
   (cl-defmethod cl-print-object ((object trie-) stream)
-    (trie--prin1 object stream)))
+    (trie--prin1 object stream))
+  (cl-defmethod cl-print-object ((object trie--stack) stream)
+    (trie--stack-prin1 object stream))
+  )
 
-  (when (fboundp 'ad-define-subr-args)
-    (ad-define-subr-args 'edebug-prin1 '(object &optional printcharfun)))
 
-  (defadvice edebug-prin1
-      (around trie '(object) activate compile preactivate)
-    (let ((pretty (trie--edebug-pretty-print object)))
-      (if pretty
-	  (progn
-	    (prin1 pretty printcharfun)
-	    (setq ad-return-value pretty))
-        ad-do-it)))
+(when (fboundp 'ad-define-subr-args)
+  (ad-define-subr-args 'edebug-prin1 '(object &optional printcharfun)))
 
-  (when (fboundp 'ad-define-subr-args)
-    (ad-define-subr-args 'edebug-prin1-to-string '(object &optional noescape)))
+(defadvice edebug-prin1
+    (around trie '(object) activate compile preactivate)
+  (let ((pretty (trie--edebug-pretty-print object)))
+    (if pretty
+	(progn
+	  (prin1 pretty printcharfun)
+	  (setq ad-return-value pretty))
+      ad-do-it)))
 
-  (defadvice edebug-prin1-to-string
-      (around trie (object) activate compile preactivate)
-    (let ((pretty (trie--edebug-pretty-print object)))
-      (if pretty
-	  (setq ad-return-value pretty)
-        ad-do-it)));)
+(when (fboundp 'ad-define-subr-args)
+  (ad-define-subr-args 'edebug-prin1-to-string '(object &optional noescape)))
+
+(defadvice edebug-prin1-to-string
+    (around trie (object) activate compile preactivate)
+  (let ((pretty (trie--edebug-pretty-print object)))
+    (if pretty
+	(setq ad-return-value pretty)
+      ad-do-it)))
+;;)
 
 
 (provide 'trie)
