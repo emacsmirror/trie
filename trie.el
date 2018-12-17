@@ -1233,7 +1233,7 @@ is more efficient."
   repopulatefun store pushed)
 
 
-(defun trie-stack (trie &optional type reverse pfxfilter)
+(defun* trie-stack (trie &key type reverse pfxfilter)
   "Return an object that allows TRIE to be accessed as a stack.
 
 The stack is sorted in \"lexicographic\" order, i.e. the order
@@ -1366,7 +1366,7 @@ element stored in the trie.)"
 ;; terms of trie-stacks.
 
 (heap--when-generators
- (iter-defun trie-iter (trie &optional type reverse pfxfilter)
+ (cl-iter-defun trie-iter (trie &key type reverse pfxfilter)
    "Return a trie iterator object.
 
 Calling `iter-next' on this object will retrieve the next element
@@ -1585,8 +1585,8 @@ results\)."
 ;; ================================================================
 ;;                          Completing
 
-(defun trie-complete
-  (trie prefix &optional rankfun maxnum reverse filter resultfun pfxfilter)
+(defun* trie-complete
+    (trie prefix &key rankfun maxnum reverse filter resultfun pfxfilter)
   "Return an alist containing all completions of PREFIX in TRIE
 along with their associated data, in the order defined by
 RANKFUN, defaulting to \"lexicographic\" order \(i.e. the order
@@ -1665,7 +1665,7 @@ is more efficient than using FILTER for the same purpose."
 
 
 
-(defun trie-complete-stack (trie prefix &optional reverse pfxfilter)
+(defun* trie-complete-stack (trie prefix &key reverse pfxfilter)
   "Return an object that allows completions of PREFIX to be accessed
 as if they were a stack.
 
@@ -1737,7 +1737,7 @@ instead."
 
 
 (heap--when-generators
- (iter-defun trie-complete-iter (trie prefix &optional reverse pfxfilter)
+ (cl-iter-defun trie-complete-iter (trie prefix &key reverse pfxfilter)
    "Return an iterator object for completions of PREFIX in TRIE.
 
 Calling `iter-next' on this object will retrieve the next
@@ -1774,8 +1774,8 @@ results\)."
 ;; ================================================================
 ;;                        Regexp search
 
-(defun trie-regexp-search
-  (trie regexp &optional rankfun maxnum reverse filter resultfun pfxfilter)
+(defun* trie-regexp-search
+  (trie regexp &key maxnum reverse rankfun filter pfxfilter resultfun)
   "Return an alist containing all matches for REGEXP in TRIE
 along with their associated data, in the order defined by
 RANKFUN, defaulting to \"lexicographic\" order \(i.e. the order
@@ -1959,7 +1959,7 @@ is more efficient than using FILTER for the same purpose."
 		 (trie--node-data node))))))
 
 
-(defun trie-regexp-stack (trie regexp &optional reverse pfxfilter)
+(defun* trie-regexp-stack (trie regexp &key reverse pfxfilter)
   "Return an object that allows matches to REGEXP to be accessed
 as if they were a stack.
 
@@ -2121,7 +2121,7 @@ as a prefix are omitted from the stack."
 
 
 (heap--when-generators
- (iter-defun trie-regexp-iter (trie regexp &optional reverse pfxfilter)
+ (cl-iter-defun trie-regexp-iter (trie regexp &key reverse pfxfilter)
    "Return an iterator object for REGEXP matches in TRIE.
 
 Calling `iter-next' on this object will retrieve the next match
@@ -2282,9 +2282,9 @@ See also `Lewenstein-distance'."
 ;; (similarly to regexp searches, cf. `trie-regexp-match'.)
 
 
-(defun trie-fuzzy-match
-    (trie string distance &optional rankfun maxnum reverse
-	  filter resultfun pfxfilter)
+(defun* trie-fuzzy-match
+    (trie string distance
+	  &key maxnum reverse rankfun filter pfxfilter resultfun)
   "Return matches for STRING in TRIE within Lewenstein DISTANCE
 \(edit distance\) of STRING along with their associated data, in
 the order defined by RANKFUN, defaulting to \"lexicographic\"
@@ -2446,8 +2446,7 @@ efficient than using FILTER for the same purpose."
 
 
 
-(defun trie-fuzzy-match-stack (trie string distance
-				    &optional reverse pfxfilter)
+(defun* trie-fuzzy-match-stack (trie string distance &key reverse pfxfilter)
   "Return an object that allows fuzzy matches to be accessed
 as if they were a stack.
 
@@ -2584,8 +2583,8 @@ a prefix are omitted from the stack."
 
 
 (heap--when-generators
- (iter-defun trie-fuzzy-match-iter (trie string distance
-					 &optional reverse pfxfilter)
+ (cl-iter-defun trie-fuzzy-match-iter (trie string distance
+					    &key reverse pfxfilter)
    "Return an iterator object for fuzzy matches to STRING in TRIE.
 
 Calling `iter-next' on this object will return the next match
@@ -2631,9 +2630,9 @@ results\)."
 ;; ================================================================
 ;;                        Fuzzy completing
 
-(defun trie-fuzzy-complete
-    (trie prefix distance &optional rankfun maxnum reverse
-	  filter resultfun pfxfilter)
+(defun* trie-fuzzy-complete
+    (trie prefix distance
+	  &key maxnum reverse rankfun filter pfxfilter resultfun)
   "Return completions of prefixes within Lewenstein DISTANCE of PREFIX
 along with their associated data, in the order defined by
 RANKFUN, defaulting to \"lexicographic\" order \(i.e. the order
@@ -2853,8 +2852,8 @@ is more efficient than using FILTER for the same purpose."
 
 
 
-(defun trie-fuzzy-complete-stack (trie prefix distance
-				       &optional reverse pfxfilter)
+(defun* trie-fuzzy-complete-stack
+    (trie prefix distance &key reverse pfxfilter)
   "Return an object that allows fuzzy completions to be accessed
 as if they were a stack.
 
@@ -3024,8 +3023,8 @@ as a prefix are omitted from the stack."
 
 
 (heap--when-generators
- (iter-defun trie-fuzzy-complete-iter (trie prefix distance
-					    &optional reverse pfxfilter)
+ (cl-iter-defun trie-fuzzy-complete-iter (trie prefix distance
+					       &key reverse pfxfilter)
    "Return an iterator object for fuzzy matches of STRING in TRIE.
 
 Calling `iter-next' on this object will return the next match
