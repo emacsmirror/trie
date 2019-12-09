@@ -147,6 +147,8 @@
 
 (eval-when-compile (require 'cl))
 (require 'cl-lib)
+(require 'gv)
+
 (require 'avl-tree)
 (require 'heap)
 (require 'tNFA)
@@ -3094,9 +3096,8 @@ results\)."
 ;; the advice.
 
 
-(eval-when-compile
-  (require 'edebug)
-  (require 'advice))
+(eval-when-compile (require 'edebug))
+(require 'advice)
 
 (defun trie--prin1 (_trie stream)
   (princ "#<trie>" stream))
