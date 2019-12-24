@@ -196,15 +196,16 @@
 
 
 ;; wrap CMPFUN for use in a subtree
-(trie--if-lexical-binding
-    (defun trie--wrap-cmpfun (cmpfun)
-      (lambda (a b)
-	(setq a (trie--node-split a)
-	      b (trie--node-split b))
-	(cond ((eq a trie--terminator)
-	       (if (eq b trie--terminator) nil t))
-	      ((eq b trie--terminator) nil)
-	      (t (funcall cmpfun a b)))))
+(defun trie--wrap-cmpfun (cmpfun)
+  (lambda (a b)
+    (setq a (trie--node-split a)
+	  b (trie--node-split b))
+    (cond ((eq a trie--terminator)
+	   (if (eq b trie--terminator) nil t))
+	  ((eq b trie--terminator) nil)
+	  (t (funcall cmpfun a b)))))
+
+(trie--if-lexical-binding nil
   (defun trie--wrap-cmpfun (cmpfun)
     `(lambda (a b)
        (setq a (trie--node-split a)
@@ -216,11 +217,12 @@
 
 
 ;; create equality function from trie comparison function
-(trie--if-lexical-binding
-    (defun trie--construct-equality-function (comparison-function)
-      (lambda (a b)
-	 (not (or (funcall comparison-function a b)
-		  (funcall comparison-function b a)))))
+(defun trie--construct-equality-function (comparison-function)
+  (lambda (a b)
+    (not (or (funcall comparison-function a b)
+	     (funcall comparison-function b a)))))
+
+(trie--if-lexical-binding nil
   (defun trie--construct-equality-function (comparison-function)
     `(lambda (a b)
        (not (or (,comparison-function a b)
@@ -228,81 +230,84 @@
 
 
 ;; create Lewenstein rank functions from trie comparison function
-(trie--if-lexical-binding
-    (defun trie--construct-fuzzy-match-rankfun (rankfun trie)
+(defun trie--construct-fuzzy-match-rankfun (rankfun trie)
+  (cond
+   ((or (eq rankfun t) (eq rankfun 'distance))
+    (let ((compfun (trie-construct-sortfun
+		    (trie-comparison-function trie))))
+      (lambda (a b)
+	(cond
+	 ((< (cdar a) (cdar b)) t)
+	 ((> (cdar a) (cdar b)) nil)
+	 (t (funcall compfun (caar a) (caar b)))))))
+   ((or (eq (car-safe rankfun) t) (eq (car-safe rankfun) 'distance))
+    (setq rankfun (cdr rankfun))
+    (lambda (a b)
       (cond
-       ((or (eq rankfun t) (eq rankfun 'distance))
-	(let ((compfun (trie-construct-sortfun
-			(trie-comparison-function trie))))
-	  (lambda (a b)
-	    (cond
-	     ((< (cdar a) (cdar b)) t)
-	     ((> (cdar a) (cdar b)) nil)
-	     (t (funcall compfun (caar a) (caar b)))))))
-       ((or (eq (car-safe rankfun) t) (eq (car-safe rankfun) 'distance))
-	(setq rankfun (cdr rankfun))
-	(lambda (a b)
-	  (cond
-	   ((< (cdar a) (cdar b)) t)
-	   ((> (cdar a) (cdar b)) nil)
-	   (t (funcall rankfun
+       ((< (cdar a) (cdar b)) t)
+       ((> (cdar a) (cdar b)) nil)
+       (t (funcall rankfun
 		       (cons (caar a) (cdr a))
 		       (cons (caar b) (cdr b)))))))))
-    (defun trie--construct-fuzzy-match-rankfun (rankfun trie)
-      (cond
-       ((or (eq rankfun t) (eq rankfun 'distance))
-	`(lambda (a b)
-	   (cond
-	    ((< (cdar a) (cdar b)) t)
-	    ((> (cdar a) (cdar b)) nil)
-	    (t (,(trie-construct-sortfun (trie-comparison-function trie))
-		(caar a) (caar b))))))
-       ((or (eq (car-safe rankfun) t) (eq (car-safe rankfun) 'distance))
-	`(lambda (a b)
-	   (cond
-	    ((< (cdar a) (cdar b)) t)
-	    ((> (cdar a) (cdar b)) nil)
-	    (t (,(cdr rankfun)
-		(cons (caar a) (cdr a))
-		(cons (caar b) (cdr b))))))))))
 
-(trie--if-lexical-binding
-    (defun trie--construct-fuzzy-complete-rankfun (rankfun trie)
+(trie--if-lexical-binding nil
+  (defun trie--construct-fuzzy-match-rankfun (rankfun trie)
+    (cond
+     ((or (eq rankfun t) (eq rankfun 'distance))
+      `(lambda (a b)
+	 (cond
+	  ((< (cdar a) (cdar b)) t)
+	  ((> (cdar a) (cdar b)) nil)
+	  (t (,(trie-construct-sortfun (trie-comparison-function trie))
+	      (caar a) (caar b))))))
+     ((or (eq (car-safe rankfun) t) (eq (car-safe rankfun) 'distance))
+      `(lambda (a b)
+	 (cond
+	  ((< (cdar a) (cdar b)) t)
+	  ((> (cdar a) (cdar b)) nil)
+	  (t (,(cdr rankfun)
+	      (cons (caar a) (cdr a))
+	      (cons (caar b) (cdr b))))))))))
+
+
+(defun trie--construct-fuzzy-complete-rankfun (rankfun trie)
+  (cond
+   ((or (eq rankfun t) (eq rankfun 'distance))
+    (let ((compfun (trie-construct-sortfun
+		    (trie-comparison-function trie))))
+      (lambda (a b)
+	(cond
+	 ((< (nth 1 (car a)) (nth 1 (car b))) t)
+	 ((> (nth 1 (car a)) (nth 1 (car b))) nil)
+	 (t (funcall compfun (caar a) (caar b)))))))
+   ((or (eq (car-safe rankfun) t) (eq (car-safe rankfun) 'distance))
+    (setq rankfun (cdr rankfun))
+    (lambda (a b)
       (cond
-       ((or (eq rankfun t) (eq rankfun 'distance))
-	(let ((compfun (trie-construct-sortfun
-			(trie-comparison-function trie))))
-	  (lambda (a b)
-	    (cond
-	     ((< (nth 1 (car a)) (nth 1 (car b))) t)
-	     ((> (nth 1 (car a)) (nth 1 (car b))) nil)
-	     (t (funcall compfun (caar a) (caar b)))))))
-       ((or (eq (car-safe rankfun) t) (eq (car-safe rankfun) 'distance))
-	(setq rankfun (cdr rankfun))
-	(lambda (a b)
-	  (cond
-	   ((< (nth 1 (car a)) (nth 1 (car b))) t)
-	   ((> (nth 1 (car a)) (nth 1 (car b))) nil)
-	   (t (funcall rankfun
-		       (cons (caar a) (cdr a))
-		       (cons (caar b) (cdr b)))))))))
+       ((< (nth 1 (car a)) (nth 1 (car b))) t)
+       ((> (nth 1 (car a)) (nth 1 (car b))) nil)
+       (t (funcall rankfun
+		   (cons (caar a) (cdr a))
+		   (cons (caar b) (cdr b)))))))))
+
+(trie--if-lexical-binding nil
   (defun trie--construct-fuzzy-complete-rankfun (rankfun trie)
-      (cond
-       ((or (eq rankfun t) (eq rankfun 'distance))
-	`(lambda (a b)
-	   (cond
-	    ((< (nth 1 (car a)) (nth 1 (car b))) t)
-	    ((> (nth 1 (car a)) (nth 1 (car b))) nil)
-	    (t (,(trie-construct-sortfun (trie-comparison-function trie))
-		(caar a) (caar b))))))
-       ((or (eq (car-safe rankfun) t) (eq (car-safe rankfun) 'distance))
-	`(lambda (a b)
-	   (cond
-	    ((< (nth 1 (car a)) (nth 1 (car b))) t)
-	    ((> (nth 1 (car a)) (nth 1 (car b))) nil)
-	    (t (,(cdr rankfun)
-		(cons (caar a) (cdr a))
-		(cons (caar b) (cdr b))))))))))
+    (cond
+     ((or (eq rankfun t) (eq rankfun 'distance))
+      `(lambda (a b)
+	 (cond
+	  ((< (nth 1 (car a)) (nth 1 (car b))) t)
+	  ((> (nth 1 (car a)) (nth 1 (car b))) nil)
+	  (t (,(trie-construct-sortfun (trie-comparison-function trie))
+	      (caar a) (caar b))))))
+     ((or (eq (car-safe rankfun) t) (eq (car-safe rankfun) 'distance))
+      `(lambda (a b)
+	 (cond
+	  ((< (nth 1 (car a)) (nth 1 (car b))) t)
+	  ((> (nth 1 (car a)) (nth 1 (car b))) nil)
+	  (t (,(cdr rankfun)
+	      (cons (caar a) (cdr a))
+	      (cons (caar b) (cdr b))))))))))
 
 
 
@@ -696,29 +701,29 @@ functions must *never* bind any variables with names commencing
 	   (trie--node-subtree (trie--root trie))))
 
 
-(trie--if-lexical-binding
-    (defun trie-construct-sortfun (cmpfun &optional reverse)
-      "Construct function to compare key sequences, based on a CMPFUN
+(defun trie-construct-sortfun (cmpfun &optional reverse)
+  "Construct function to compare key sequences, based on a CMPFUN
 that compares individual elements of the sequence. Order is
 reversed if REVERSE is non-nil."
-      (if reverse
-	  (lambda (a b)
-	    (catch 'compared
-	      (dotimes (i (min (length a) (length b)))
-		(cond ((funcall cmpfun (elt b i) (elt a i))
-		       (throw 'compared t))
-		      ((funcall cmpfun (elt a i) (elt b i))
-		       (throw 'compared nil))))
-	      (< (length a) (length b))))
-	(lambda (a b)
-	  (catch 'compared
-	    (dotimes (i (min (length a) (length b)))
-	      (cond ((funcall cmpfun (elt a i) (elt b i))
-		     (throw 'compared t))
-		    ((funcall cmpfun (elt b i) (elt a i))
-		     (throw 'compared nil))))
-	    (< (length a) (length b))))))
+  (if reverse
+      (lambda (a b)
+	(catch 'compared
+	  (dotimes (i (min (length a) (length b)))
+	    (cond ((funcall cmpfun (elt b i) (elt a i))
+		   (throw 'compared t))
+		  ((funcall cmpfun (elt a i) (elt b i))
+		   (throw 'compared nil))))
+	  (< (length a) (length b))))
+    (lambda (a b)
+      (catch 'compared
+	(dotimes (i (min (length a) (length b)))
+	  (cond ((funcall cmpfun (elt a i) (elt b i))
+		 (throw 'compared t))
+		((funcall cmpfun (elt b i) (elt a i))
+		 (throw 'compared nil))))
+	(< (length a) (length b))))))
 
+(trie--if-lexical-binding nil
   (defun trie-construct-sortfun (cmpfun &optional reverse)
     "Construct function to compare key sequences, based on a CMPFUN
 that compares individual elements of the sequence. Order is
@@ -740,7 +745,7 @@ reversed if REVERSE is non-nil."
 		   ((,cmpfun (elt b i) (elt a i))
 		    (throw 'compared nil))))
 	   (< (length a) (length b))))))
-)
+  )
 
 
 
