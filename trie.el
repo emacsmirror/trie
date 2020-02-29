@@ -29,7 +29,7 @@
 ;; Quick Overview
 ;; --------------
 ;; A trie is a data structure used to store keys that are ordered sequences of
-;; elements (vectors, lists or strings in Elisp; strings are by far the most
+;; elements (vectors, lists, or strings in Elisp; strings are by far the most
 ;; common), in such a way that both storage and retrieval are space- and
 ;; time-efficient. But, more importantly, a variety of more advanced queries
 ;; can also be performed efficiently: for example, returning all strings with
@@ -188,11 +188,10 @@
 (defmacro trie--if-lexical-binding (then else)
   "If lexical binding is in effect, evaluate THEN, otherwise ELSE."
   (declare (indent 1) (debug t))
-  (if (let ((tempvar nil)
-	    (f (let ((tempvar t)) (lambda () tempvar))))
+  (let ((tempvar else)
+	(f (let ((tempvar then)) (lambda () tempvar))))
 	tempvar   ; shut up "unused lexical variable" byte-compiler warning
-	(funcall f))
-      then else))
+    (funcall f)))
 
 
 ;; wrap CMPFUN for use in a subtree
