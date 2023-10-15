@@ -1,9 +1,9 @@
 ;;; trie.el --- Trie data structure  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2008-2020  Free Software Foundation, Inc
+;; Copyright (C) 2008-2023  Free Software Foundation, Inc
 
 ;; Author: Toby Cubitt <toby-predictive@dr-qubit.org>
-;; Version: 0.5
+;; Version: 0.6
 ;; Keywords: extensions, matching, data structures
 ;;           trie, ternary search tree, tree, completion, regexp
 ;; Package-Requires: ((tNFA "0.1.1") (heap "0.3"))
@@ -147,7 +147,6 @@
 
 ;;; Code:
 
-(eval-when-compile (require 'cl))
 (require 'cl-lib)
 (require 'gv)
 
@@ -192,7 +191,7 @@
   (declare (indent 1) (debug t))
   (let ((tempvar else)
 	(f (let ((tempvar then)) (lambda () tempvar))))
-	tempvar   ; shut up "unused lexical variable" byte-compiler warning
+    tempvar   ; Shut up "unused lexical variable" byte-compiler warning.
     (funcall f)))
 
 
@@ -316,7 +315,7 @@
 ;;; ----------------------------------------------------------------
 ;;;           Functions and macros for handling a trie.
 
-(defstruct
+(cl-defstruct
   (trie-
    :named
    (:constructor nil)
@@ -370,7 +369,7 @@
 ;;; ----------------------------------------------------------------
 ;;;          Functions and macros for handling a trie node.
 
-(defstruct
+(cl-defstruct
   (trie--node
    (:type vector)
    (:constructor nil)
@@ -391,10 +390,9 @@
    split subtree)
 
 ;; data is stored in the subtree cell of a terminal node
-(defalias 'trie--node-data 'trie--node-subtree)
+(eval-and-compile ;; So the compiler sees the gv-setter.
+  (defalias 'trie--node-data #'trie--node-subtree))
 
-(defsetf trie--node-data (node) (data)
-  `(setf (trie--node-subtree ,node) ,data))
 
 (defsubst trie--node-data-p (node)
   ;; Return t if NODE is a data node, nil otherwise.
@@ -413,7 +411,7 @@
   ;; Returns the node below NODE corresponding to SEQ, or nil if none found.
   (let ((i -1))
     ;; descend trie until we find SEQ or run out of trie
-    (while (and node (< (incf i) (length seq)))
+    (while (and node (< (cl-incf i) (length seq)))
       (setq node
 	    (funcall lookupfun
 		     (trie--node-subtree node)
@@ -490,47 +488,6 @@
 ;;; ----------------------------------------------------------------
 ;;;                Replacements for CL functions
 
-(unless (require 'cl-lib nil t)
-  ;; copied from cl-extra.el
-  (defun cl-subseq (seq start &optional end)
-    "Return the subsequence of SEQ from START to END.
-If END is omitted, it defaults to the length of the sequence.
-If START or END is negative, it counts from the end."
-    (if (stringp seq) (substring seq start end)
-      (let (len)
-	(and end (< end 0) (setq end (+ end (setq len (length seq)))))
-	(when (< start 0)
-	  (setq start (+ start (or len (setq len (length seq))))))
-	(cond ((listp seq)
-	       (if (> start 0) (setq seq (nthcdr start seq)))
-	       (if end
-		   (let ((res nil))
-		     (while (>= (setq end (1- end)) start)
-		       (push (pop seq) res))
-		     (nreverse res))
-		 (copy-sequence seq)))
-	      (t
-	       (or end (setq end (or len (length seq))))
-	       (let ((res (make-vector (max (- end start) 0) nil))
-		     (i 0))
-		 (while (< start end)
-		   (aset res i (aref seq start))
-		   (setq i (1+ i) start (1+ start)))
-		 res))))))
-
-  (defun cl-position (item list)
-    "Find the first occurrence of ITEM in LIST.
-Return the index of the matching item, or nil of not found.
-Comparison is done with `equal'."
-    (let ((i 0))
-      (catch 'found
-	(while (progn
-		 (when (equal item (car list)) (throw 'found i))
-		 (setq i (1+ i))
-		 (setq list (cdr list))))
-	nil)))
-)
-
 
 (defsubst trie--seq-append (seq el)
   "Append EL to the end of sequence SEQ."
@@ -575,7 +532,7 @@ the default, so this argument is useless for now.
 
 
 ;;;###autoload
-(defalias 'make-trie-custom 'trie--create-custom
+(defalias 'make-trie-custom #'trie--create-custom
   "Return a new trie that uses comparison function COMPARISON-FUNCTION.
 
 A trie stores sequences (strings, vectors or lists) along with
@@ -683,15 +640,15 @@ functions must *never* bind any variables with names commencing
 
 
 ;;;###autoload
-(defalias 'trie-create-custom 'make-trie-custom)
+(defalias 'trie-create-custom #'make-trie-custom)
 
 
 
-(defalias 'trie-comparison-function 'trie--comparison-function
+(defalias 'trie-comparison-function #'trie--comparison-function
   "Return the comparison function for TRIE.")
 
 
-(defalias 'trie-p 'trie--p
+(defalias 'trie-p #'trie--p
   "Return t if argument is a trie, nil otherwise.")
 
 
@@ -784,7 +741,7 @@ bind any variables with names commencing \"--\"."
     ;; Descend trie, adding nodes for non-existent elements of KEY. The
     ;; update function passed to `trie--insertfun' ensures that existing
     ;; nodes are left intact.
-    (while (< (incf i) len)
+    (while (< (cl-incf i) len)
       (setq --trie-insert--old-node-flag nil)
       (setq node (funcall (trie--insertfun trie)
 			  (trie--node-subtree node)
@@ -908,7 +865,7 @@ also `trie-member-p', which does this for you.)"
 	     (trie--find-data node (trie--lookupfun trie)))
 	nilflag)))
 
-(defalias 'trie-member 'trie-lookup)
+(defalias 'trie-member #'trie-lookup)
 
 
 (defun trie-member-p (trie key)
@@ -1133,7 +1090,7 @@ is more efficient."
 ;;; ================================================================
 ;;;                    Using tries as stacks
 
-(defstruct (trie--stack
+(cl-defstruct (trie--stack
 	    (:constructor nil)
 	    (:constructor
 	     trie--stack-create
@@ -1241,7 +1198,7 @@ is more efficient."
   repopulatefun store pushed)
 
 
-(defun* trie-stack (trie &key type reverse pfxfilter)
+(cl-defun trie-stack (trie &key type reverse pfxfilter)
   "Return an object that allows TRIE to be accessed as a stack.
 
 The stack is sorted in \"lexicographic\" order, i.e. the order
@@ -1325,7 +1282,7 @@ element stored in the trie.)"
       (car (trie--stack-store trie-stack)))))
 
 
-(defalias 'trie-stack-p 'trie--stack-p
+(defalias 'trie-stack-p #'trie--stack-p
   "Return t if argument is a trie-stack, nil otherwise.")
 
 
@@ -1593,7 +1550,7 @@ results\)."
 ;; ================================================================
 ;;                          Completing
 
-(defun* trie-complete
+(cl-defun trie-complete
     (trie prefix &key rankfun maxnum reverse filter resultfun pfxfilter)
   "Return an alist containing all completions of PREFIX in TRIE
 along with their associated data, in the order defined by
@@ -1673,7 +1630,7 @@ is more efficient than using FILTER for the same purpose."
 
 
 
-(defun* trie-complete-stack (trie prefix &key reverse pfxfilter)
+(cl-defun trie-complete-stack (trie prefix &key reverse pfxfilter)
   "Return an object that allows completions of PREFIX to be accessed
 as if they were a stack.
 
@@ -1782,7 +1739,7 @@ results\)."
 ;; ================================================================
 ;;                        Regexp search
 
-(defun* trie-regexp-search
+(cl-defun trie-regexp-search
   (trie regexp &key maxnum reverse rankfun filter pfxfilter resultfun)
   "Return an alist containing all matches for REGEXP in TRIE
 along with their associated data, in the order defined by
@@ -1967,7 +1924,7 @@ is more efficient than using FILTER for the same purpose."
 		 (trie--node-data node))))))
 
 
-(defun* trie-regexp-stack (trie regexp &key reverse pfxfilter)
+(cl-defun trie-regexp-stack (trie regexp &key reverse pfxfilter)
   "Return an object that allows matches to REGEXP to be accessed
 as if they were a stack.
 
@@ -2185,7 +2142,9 @@ results\)."
 ;; Basic Lewenstein distance (edit distance) functions
 ;; ---------------------------------------------------
 
-(defun* Lewenstein-distance (str1 str2 &key (test #'equal))
+(define-obsolete-function-alias 'Lewenstein-distance
+  #'trie-lewenstein-distance "2023")
+(cl-defun trie-lewenstein-distance (str1 str2 &key (test #'equal))
   "Return the Lewenstein distance between strings STR1 and STR2
 \(a.k.a. edit distance\).
 
@@ -2199,32 +2158,34 @@ function to use to test equality of sequence elements, defaulting
 to `equal'."
   (let ((row (apply #'vector (number-sequence 0 (length str2)))))
     (dotimes (i (length str1))
-      (setq row (Lewenstein--next-row row str2 (elt str1 i) test)))
+      (setq row (trie--lewenstein-next-row row str2 (elt str1 i) test)))
     (aref row (1- (length row)))))
 
-(defalias 'edit-distance 'Lewenstein-distance)
+(define-obsolete-function-alias 'edit-distance #'trie-edit-distance "2023")
+(defalias 'trie-edit-distance #'trie-lewenstein-distance)
 
-
-(defun* Lewenstein-prefix-distance (prefix string &key (test #'equal))
+(define-obsolete-function-alias 'Lewenstein-prefix-distance
+  #'trie-lewenstein-prefix-distance "2023")
+(cl-defun trie-lewenstein-prefix-distance (prefix string &key (test #'equal))
   "Return the Lewenstein prefix distance between PREFIX and STRING,
 i.e. the minimum distance between PREFIX and any prefix of STRING.
 
-See also `Lewenstein-distance'."
+See also `trie-lewenstein-distance'."
   (let ((min (length prefix))
 	dist pfxlen)
     (dotimes (i (length string))
-      (setq dist (Lewenstein-distance prefix (cl-subseq string 0 (1+ i))
-				      :test test))
+      (setq dist (trie-lewenstein-distance prefix (cl-subseq string 0 (1+ i))
+				           :test test))
       (if (<= dist min) (setq min dist pfxlen (1+ i))))
     (cons min pfxlen)))
 
 
-(defun Lewenstein--next-row (row string chr equalfun)
+(defun trie--lewenstein-next-row (row string chr equalfun)
   ;; Compute next row of Lewenstein distance matrix.
   (let ((next-row (make-vector (length row) nil))
 	(i 0))
     (aset next-row 0 (1+ (aref row 0)))
-    (while (< (incf i) (length row))
+    (while (< (cl-incf i) (length row))
       (aset next-row i
 	    (min
 	     (1+ (aref next-row (1- i)))                     ; insertion
@@ -2236,20 +2197,20 @@ See also `Lewenstein-distance'."
     next-row))
 
 
-(defun Lewenstein--initial-reduced-row (dist)
+(defun trie--lewenstein-initial-reduced-row (dist)
   (let ((row (make-vector (* 2 (1+ dist)) nil)))
     (aset row 0 0)
     (dotimes (i (1+ dist)) (aset row (+ dist i 1) i))
     row))
 
 
-(defun Lewenstein--next-reduced-row (row string chr equalfun)
+(defun trie--lewenstein-next-reduced-row (row string chr equalfun)
   ;; Compute next row of reduced Lewenstein distance matrix.
   (let ((next-row (make-vector (length row) nil))
 	(i 0) offset)
     (aset next-row 0 (1+ (aref row 0)))
     (setq offset (- (aref next-row 0) (1- (/ (length row) 2)) 2))
-    (while (< (incf i) (length row))
+    (while (< (cl-incf i) (length row))
       ;; insertion
       (when (and (< 1 i (length row)) (aref next-row (1- i)))
 	(aset next-row i (1+ (aref next-row (1- i)))))
@@ -2290,7 +2251,7 @@ See also `Lewenstein-distance'."
 ;; (similarly to regexp searches, cf. `trie-regexp-match'.)
 
 
-(defun* trie-fuzzy-match
+(cl-defun trie-fuzzy-match
     (trie string distance
 	  &key maxnum reverse rankfun filter pfxfilter resultfun)
   "Return matches for STRING in TRIE within Lewenstein DISTANCE
@@ -2423,7 +2384,7 @@ efficient than using FILTER for the same purpose."
 	(let ((dist (aref row (1- (length row)))))
 	  (funcall accumulator (cons seq dist) (trie--node-data node))
 	  (and stats
-	       (incf (aref stats dist))
+	       (cl-incf (aref stats dist))
 	       (eq ranked-by-dist 'dist-only)
 	       (>= (aref stats 0) maxnum)
 	       (throw 'trie--accumulate-done nil))))
@@ -2431,7 +2392,7 @@ efficient than using FILTER for the same purpose."
     (setq seq (trie--seq-append seq (trie--node-split node)))
     (when (or (null pfxfilter) (funcall pfxfilter seq))
       ;; build next row of Lewenstein table
-      (setq row (Lewenstein--next-row
+      (setq row (trie--lewenstein-next-row
 		 row string (trie--node-split node) equalfun))
 
       ;; MIN = minimum possible prefix cost for any continuation of SEQ
@@ -2454,7 +2415,7 @@ efficient than using FILTER for the same purpose."
 
 
 
-(defun* trie-fuzzy-match-stack (trie string distance &key reverse pfxfilter)
+(cl-defun trie-fuzzy-match-stack (trie string distance &key reverse pfxfilter)
   "Return an object that allows fuzzy matches to be accessed
 as if they were a stack.
 
@@ -2542,8 +2503,7 @@ a prefix are omitted from the stack."
     (let ((equalfun (trie--construct-equality-function comparison-function))
 	  nextrow)
 
-      (destructuring-bind (seq node string distance row)
-	  (car store)
+      (pcase-let ((`(,seq ,node ,string ,distance ,row) (car store)))
 	(setq node (funcall stack-popfun node))
 	(when (funcall stack-emptyfun (nth 1 (car store)))
 	  ;; using (pop store) here produces irritating compiler warnings
@@ -2557,7 +2517,7 @@ a prefix are omitted from the stack."
 			      (<= (aref row (1- (length row))) distance))))
 	  ;; drop data nodes whose SEQ is greater than DISTANCE
 	  (unless (trie--node-data-p node)
-	    (setq nextrow (Lewenstein--next-row
+	    (setq nextrow (trie--lewenstein-next-row
 			   row string (trie--node-split node) equalfun))
 	    ;; push children of non-data nodes whose SEQ is less than DISTANCE
 	    ;; onto stack
@@ -2638,7 +2598,7 @@ results\)."
 ;; ================================================================
 ;;                        Fuzzy completing
 
-(defun* trie-fuzzy-complete
+(cl-defun trie-fuzzy-complete
     (trie prefix distance
 	  &key maxnum reverse rankfun filter pfxfilter resultfun)
   "Return completions of prefixes within Lewenstein DISTANCE of PREFIX
@@ -2808,7 +2768,7 @@ is more efficient than using FILTER for the same purpose."
       (when (<= pfxcost distance)
 	(funcall accumulator (list seq pfxcost pfxlen) (trie--node-data node))
 	(and stats
-	     (incf (aref stats pfxcost))
+	     (cl-incf (aref stats pfxcost))
 	     (eq ranked-by-dist 'dist-only)
 	     (>= (aref stats 0) maxnum)
 	     (throw 'trie--accumulate-done nil)))
@@ -2816,7 +2776,7 @@ is more efficient than using FILTER for the same purpose."
     (setq seq (trie--seq-append seq (trie--node-split node)))
     (when (or (null pfxfilter) (funcall pfxfilter seq))
       ;; build next row of Lewenstein table
-      (setq row (Lewenstein--next-row
+      (setq row (trie--lewenstein-next-row
 		 row prefix (trie--node-split node) equalfun))
       (when (<= (aref row (1- (length row))) pfxcost)
 	(setq pfxcost (aref row (1- (length row)))
@@ -2839,7 +2799,7 @@ is more efficient than using FILTER for the same purpose."
 	     (lambda (n s)
      	       (funcall accumulator (list s pfxcost pfxlen) (trie--node-data n))
 	       (and stats
-		    (incf (aref stats pfxcost))
+		    (cl-incf (aref stats pfxcost))
 		    (eq ranked-by-dist 'dist-only)
 		    (>= (aref stats 0) maxnum)
 		    (throw 'trie--accumulate-done nil)))
@@ -2860,7 +2820,7 @@ is more efficient than using FILTER for the same purpose."
 
 
 
-(defun* trie-fuzzy-complete-stack
+(cl-defun trie-fuzzy-complete-stack
     (trie prefix distance &key reverse pfxfilter)
   "Return an object that allows fuzzy completions to be accessed
 as if they were a stack.
@@ -2948,8 +2908,8 @@ as a prefix are omitted from the stack."
   (when store
     (let ((equalfun (trie--construct-equality-function comparison-function)))
 
-      (destructuring-bind (seq node prefix distance row pfxcost pfxlen)
-	  (car store)
+      (pcase-let ((`(,seq ,node ,prefix ,distance ,row ,pfxcost ,pfxlen)
+	           (car store)))
 	(setq node (funcall stack-popfun node))
 	(when (funcall stack-emptyfun (nth 1 (car store)))
 	  ;; using (pop store) here produces irritating compiler warnings
@@ -2972,7 +2932,7 @@ as a prefix are omitted from the stack."
 				  (setq seq (trie--seq-append
 					     seq (trie--node-split node))))))
 	    ;; build next row of Lewenstein table
-	    (setq row (Lewenstein--next-row
+	    (setq row (trie--lewenstein-next-row
 		       row prefix (trie--node-split node) equalfun))
 	    (when (<= (aref row (1- (length row))) pfxcost)
 	      (setq pfxcost (aref row (1- (length row)))
@@ -3103,7 +3063,6 @@ results\)."
 
 
 (eval-when-compile (require 'edebug))
-(require 'advice)
 
 (defun trie--prin1 (_trie stream)
   (princ "#<trie>" stream))
@@ -3114,70 +3073,64 @@ results\)."
 (defun trie--stack-prin1 (_trie stream)
   (princ "#<trie-stack>" stream))
 
-(defun trie--edebug-pretty-print (object)
-  (cond
-   ((trie-p object) "#<trie>")
-   ((trie--stack-p object) "#<trie-stack>")
-   ((and (trie--node-p object) (cl-struct-p (trie--node-subtree object)))
-    "#<trie--node>")
-   ((null object) "nil")
-   ((let ((tlist object) (test t))
-      (while (or (trie-p (car-safe tlist))
-		 (and tlist (setq test nil)))
-	(setq tlist (cdr tlist)))
-      test)
-    (concat "(" (mapconcat (lambda (_dummy) "#<trie>") object " ") ")"))
-   ((let ((tlist object) (test t))
-      (while (or (and (trie--node-p (car-safe tlist))
-		      (cl-struct-p (trie--node-subtree (car tlist))))
-		 (and tlist (setq test nil)))
-	(setq tlist (cdr tlist)))
-      test)
-    (concat "(" (mapconcat (lambda (_dummy) "#<trie--node>") object " ") ")"))
-;; ((vectorp object)
-;;  (let ((pretty "[") (len (length object)))
-;;    (dotimes (i (1- len))
-;; 	(setq pretty
-;; 	      (concat pretty
-;; 		      (if (trie-p (aref object i))
-;; 			  "#<trie>" (prin1-to-string (aref object i))) " ")))
-;;    (concat pretty
-;; 	      (if (trie-p (aref object (1- len)))
-;; 		  "#<trie>" (prin1-to-string (aref object (1- len))))
-;; 	      "]")))
-   ))
+(defmacro trie--if-when-compile (cond then else)
+  (declare (indent 2) (debug t))
+  (if (eval cond t) then else))
 
+(trie--if-when-compile (>= emacs-major-version 26)
+    (progn
+      (cl-defmethod cl-print-object ((object trie-) stream)
+        (trie--prin1 object stream))
+      (cl-defmethod cl-print-object ((object trie--stack) stream)
+        (trie--stack-prin1 object stream)))
 
-(when (fboundp 'cl-print-object)
-  (cl-defmethod cl-print-object ((object trie-) stream)
-    (trie--prin1 object stream))
-  (cl-defmethod cl-print-object ((object trie--stack) stream)
-    (trie--stack-prin1 object stream))
-  )
+  (progn
+    (defun trie--edebug-pretty-print (object)
+      (cond
+       ((trie-p object) "#<trie>")
+       ((trie--stack-p object) "#<trie-stack>")
+       ((and (trie--node-p object) (cl-struct-p (trie--node-subtree object)))
+        "#<trie--node>")
+       ((null object) "nil")
+       ((let ((tlist object) (test t))
+	  (while (or (trie-p (car-safe tlist))
+		     (and tlist (setq test nil)))
+	    (setq tlist (cdr tlist)))
+	  test)
+	(concat "(" (mapconcat (lambda (_dummy) "#<trie>") object " ") ")"))
+       ((let ((tlist object) (test t))
+	  (while (or (and (trie--node-p (car-safe tlist))
+		          (cl-struct-p (trie--node-subtree (car tlist))))
+		     (and tlist (setq test nil)))
+	    (setq tlist (cdr tlist)))
+	  test)
+	(concat "(" (mapconcat (lambda (_dummy) "#<trie--node>") object " ") ")"))
+       ;; ((vectorp object)
+       ;;  (let ((pretty "[") (len (length object)))
+       ;;    (dotimes (i (1- len))
+       ;; 	(setq pretty
+       ;; 	      (concat pretty
+       ;; 		      (if (trie-p (aref object i))
+       ;; 			  "#<trie>" (prin1-to-string (aref object i))) " ")))
+       ;;    (concat pretty
+       ;; 	      (if (trie-p (aref object (1- len)))
+       ;; 		  "#<trie>" (prin1-to-string (aref object (1- len))))
+       ;; 	      "]")))
+       ))
 
+    (advice-add 'edebug-prin1 :around #'trie--edebug-prin1)
+    (defun trie--edebug-prin1 (orig-fun object &optional printcharfun args)
+      (let ((pretty (trie--edebug-pretty-print object)))
+	(if pretty
+	    (progn
+	      (prin1 pretty printcharfun)
+	      pretty)
+	  (apply orig-fun object printcharfun args))))
 
-(when (fboundp 'ad-define-subr-args)
-  (ad-define-subr-args 'edebug-prin1 '(object &optional printcharfun)))
-
-(defadvice edebug-prin1
-    (around trie '(object) activate compile preactivate)
-  (let ((pretty (trie--edebug-pretty-print object)))
-    (if pretty
-	(progn
-	  (prin1 pretty printcharfun)
-	  (setq ad-return-value pretty))
-      ad-do-it)))
-
-(when (fboundp 'ad-define-subr-args)
-  (ad-define-subr-args 'edebug-prin1-to-string '(object &optional noescape)))
-
-(defadvice edebug-prin1-to-string
-    (around trie (object) activate compile preactivate)
-  (let ((pretty (trie--edebug-pretty-print object)))
-    (if pretty
-	(setq ad-return-value pretty)
-      ad-do-it)))
-;;)
+    (advice-add 'edebug-prin1-to-string :around #'trie--edebug-prin1-to-string)
+    (defun trie--edebug-prin1-to-string (orig-fun object &rest args)
+      (or (trie--edebug-pretty-print object)
+	  (apply orig-fun object args)))))
 
 
 (provide 'trie)
